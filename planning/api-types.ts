@@ -193,38 +193,6 @@ export interface PlantingEventCreateRequest extends PlantingEventUpdateRequest {
   id: Id;
 }
 
-// Minimal magic-link session contract; no general user-admin CRUD in this draft.
-
-export interface CurrentUserResponse {
-  id: Id;
-  email: string;
-  display_name: string;
-}
-
-export interface SessionResponse {
-  user: CurrentUserResponse | null;
-}
-
-export interface MagicLinkCreateRequest {
-  email: string;
-}
-
-export interface MagicLinkResponse {
-  /** Same generic message whether or not this email is authorised. */
-  message: string;
-}
-
-export interface AuthCallbackCreateRequest {
-  token: string;
-}
-
-/** Send access_token as Authorization: Bearer <access_token>. */
-export interface AuthCallbackResponse {
-  access_token: string;
-  expires_at: Timestamp;
-  user: CurrentUserResponse;
-}
-
 export interface ErrorResponse {
   error: {
     code:
@@ -232,7 +200,8 @@ export interface ErrorResponse {
       | "unauthenticated"
       | "forbidden"
       | "not_found"
-      | "conflict";
+      | "conflict"
+      | "internal_error";
     message: string;
     /** Optional field-path errors, e.g. { "species.0.quantity": "Must be >= 0" }. */
     fields?: Record<string, string>;
