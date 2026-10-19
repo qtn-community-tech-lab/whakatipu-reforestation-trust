@@ -447,6 +447,106 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      "planting_area_create": {
+        Args: {
+          "p_actor_id": string;
+          "p_description": string;
+          "p_geometry": Json;
+          "p_id": string;
+          "p_is_public": boolean;
+          "p_location_id": string;
+          "p_name": string;
+          "p_site_id": string;
+        };
+        Returns:
+          Database["public"]["CompositeTypes"]["planting_area_detail_rows"][];
+        SetofOptions: {
+          from: "*";
+          to: "planting_area_detail_rows";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
+      "planting_area_deactivate": {
+        Args: { "p_actor_id": string; "p_id": string };
+        Returns: undefined;
+      };
+      "planting_area_get": {
+        Args: { "p_id": string };
+        Returns:
+          Database["public"]["CompositeTypes"]["planting_area_detail_rows"][];
+        SetofOptions: {
+          from: "*";
+          to: "planting_area_detail_rows";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
+      "planting_area_update": {
+        Args: {
+          "p_actor_id": string;
+          "p_description": string;
+          "p_geometry": Json;
+          "p_id": string;
+          "p_is_public": boolean;
+          "p_location_id": string;
+          "p_name": string;
+          "p_site_id": string;
+        };
+        Returns:
+          Database["public"]["CompositeTypes"]["planting_area_detail_rows"][];
+        SetofOptions: {
+          from: "*";
+          to: "planting_area_detail_rows";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
+      "planting_event_deactivate": {
+        Args: { "p_actor_id": string; "p_id": string };
+        Returns: undefined;
+      };
+      "planting_event_get": {
+        Args: { "p_id": string };
+        Returns:
+          Database["public"]["CompositeTypes"]["planting_event_detail_rows"][];
+        SetofOptions: {
+          from: "*";
+          to: "planting_event_detail_rows";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
+      "planting_event_list": {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          "events":
+            (Database["public"]["CompositeTypes"]["species_event_row"])[];
+        }[];
+      };
+      "planting_event_save": {
+        Args: {
+          "p_actor_id": string;
+          "p_create": boolean;
+          "p_event_type": string;
+          "p_id": string;
+          "p_image_url": string;
+          "p_is_public": boolean;
+          "p_notes": string;
+          "p_planting_area_id": string;
+          "p_planting_date": string;
+          "p_site_id": string;
+          "p_species": Json;
+        };
+        Returns:
+          Database["public"]["CompositeTypes"]["planting_event_detail_rows"][];
+        SetofOptions: {
+          from: "*";
+          to: "planting_event_detail_rows";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
       "site_create": {
         Args: {
           "p_actor_id": string;
@@ -554,6 +654,34 @@ export type Database = {
       [_ in never]: never;
     };
     CompositeTypes: {
+      "event_species_row": {
+        "id": string | null;
+        "species": Database["public"]["Tables"]["species"]["Row"] | null;
+        "quantity": number | null;
+      };
+      "planting_area_detail_rows": {
+        "area": Database["public"]["Tables"]["planting_areas"]["Row"] | null;
+        "site": Database["public"]["Tables"]["sites"]["Row"] | null;
+        "location": Database["public"]["Tables"]["locations"]["Row"] | null;
+        "total_plants": number | null;
+        "planting_event_count": number | null;
+        "species_totals":
+          | (Database["public"]["CompositeTypes"]["site_species_total_row"])[]
+          | null;
+        "events":
+          | (Database["public"]["CompositeTypes"]["species_event_row"])[]
+          | null;
+      };
+      "planting_event_detail_rows": {
+        "event": Database["public"]["Tables"]["planting_events"]["Row"] | null;
+        "site": Database["public"]["Tables"]["sites"]["Row"] | null;
+        "area": Database["public"]["Tables"]["planting_areas"]["Row"] | null;
+        "location": Database["public"]["Tables"]["locations"]["Row"] | null;
+        "total_plants": number | null;
+        "lines":
+          | (Database["public"]["CompositeTypes"]["event_species_row"])[]
+          | null;
+      };
       "site_area_row": {
         "id": string | null;
         "name": string | null;

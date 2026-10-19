@@ -34,7 +34,22 @@ export function throwDatabaseError(
       "The operation conflicts with the stored data.",
     );
   }
-  if (["23514", "23502", "22P02", "22023"].includes(error.code)) {
+  if (
+    [
+      "23514",
+      "23502",
+      "22P02",
+      "22P05",
+      "PGRST102",
+      "22023",
+      "22007",
+      "22008",
+      "22003",
+    ]
+      .includes(
+        error.code,
+      )
+  ) {
     throw new HttpError(
       400,
       "validation_error",

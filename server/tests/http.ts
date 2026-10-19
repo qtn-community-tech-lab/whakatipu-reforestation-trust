@@ -13,7 +13,11 @@ export async function request(
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(30_000),
   });
-  strictEqual(response.headers.get("Cache-Control"), "private, no-store");
+  strictEqual(
+    response.headers.get("Cache-Control"),
+    "private, no-store",
+    `${method} ${path} returned HTTP ${response.status} without the expected cache header`,
+  );
   match(response.headers.get("X-Request-ID") ?? "", /^[0-9a-f-]{36}$/);
   return response;
 }

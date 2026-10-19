@@ -4,6 +4,10 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type {
   ErrorResponse,
+  PlantingAreaCreateRequest,
+  PlantingAreaUpdateRequest,
+  PlantingEventCreateRequest,
+  PlantingEventUpdateRequest,
   SiteCreateRequest,
   SiteUpdateRequest,
   SpeciesCreateRequest,
@@ -29,6 +33,21 @@ import {
   listSites,
   updateSite,
 } from "./sites.ts";
+
+import {
+  createPlantingArea,
+  deactivatePlantingArea,
+  getPlantingArea,
+  listPlantingAreas,
+  updatePlantingArea,
+} from "./planting-areas.ts";
+
+import {
+  deactivatePlantingEvent,
+  getPlantingEvent,
+  listPlantingEvents,
+  savePlantingEvent,
+} from "./planting-events.ts";
 
 type AppEnv = {
   Variables: {
@@ -133,7 +152,10 @@ export function createApp() {
     const body = await readJson<SpeciesCreateRequest>(c.req.raw);
     log("species.create.body_parsed");
     const species = await createSpecies(c.get("db"), body, log);
-    c.header("Location", `/functions/v1/api/species/${species.id}`);
+    c.header(
+      "Location",
+      `/functions/v1/api/species/${encodeURIComponent(species.id)}`,
+    );
     return c.json(species, 201);
   });
   app.put("/species/:id", async (c) => {
@@ -173,7 +195,10 @@ export function createApp() {
     const body = await readJson<SiteCreateRequest>(c.req.raw);
     log("sites.create.body_parsed");
     const site = await createSite(c.get("db"), body, log);
-    c.header("Location", `/functions/v1/api/sites/${site.id}`);
+    c.header(
+      "Location",
+      `/functions/v1/api/sites/${encodeURIComponent(site.id)}`,
+    );
     return c.json(site, 201);
   });
   app.put("/sites/:id", async (c) => {
@@ -195,6 +220,101 @@ export function createApp() {
     throw new HttpError(405, "validation_error", "Method not allowed.");
   });
   app.all("/sites/:id", (c) => {
+    c.header("Allow", "GET, HEAD, PUT, DELETE, OPTIONS");
+    throw new HttpError(405, "validation_error", "Method not allowed.");
+  });
+  app.get(
+    "/planting-areas",
+    async (c) => c.json(await listPlantingAreas(c.get("db"), c.get("log"))),
+  );
+  app.get(
+    "/planting-areas/:id",
+    async (c) =>
+      c.json(
+        await getPlantingArea(c.get("db"), c.req.param("id"), c.get("log")),
+      ),
+  );
+  app.post("/planting-areas", async (c) => {
+    const log = c.get("log");
+    log("planting_areas.create.body_parsing");
+    const body = await readJson<PlantingAreaCreateRequest>(c.req.raw);
+    log("planting_areas.create.body_parsed");
+    const area = await createPlantingArea(c.get("db"), body, log);
+    c.header(
+      "Location",
+      `/functions/v1/api/planting-areas/${encodeURIComponent(area.id)}`,
+    );
+    return c.json(area, 201);
+  });
+  app.put("/planting-areas/:id", async (c) => {
+    const log = c.get("log");
+    log("planting_areas.update.body_parsing");
+    const body = await readJson<PlantingAreaUpdateRequest>(c.req.raw);
+    log("planting_areas.update.body_parsed");
+    return c.json(
+      await updatePlantingArea(c.get("db"), c.req.param("id"), body, log),
+    );
+  });
+  app.delete("/planting-areas/:id", async (c) => {
+    await deactivatePlantingArea(c.get("db"), c.req.param("id"), c.get("log"));
+    return c.body(null, 204);
+  });
+
+  app.all("/planting-areas", (c) => {
+    c.header("Allow", "GET, HEAD, POST, OPTIONS");
+    throw new HttpError(405, "validation_error", "Method not allowed.");
+  });
+  app.all("/planting-areas/:id", (c) => {
+    c.header("Allow", "GET, HEAD, PUT, DELETE, OPTIONS");
+    throw new HttpError(405, "validation_error", "Method not allowed.");
+  });
+  app.get(
+    "/planting-events",
+    async (c) => c.json(await listPlantingEvents(c.get("db"), c.get("log"))),
+  );
+  app.get(
+    "/planting-events/:id",
+    async (c) =>
+      c.json(
+        await getPlantingEvent(c.get("db"), c.req.param("id"), c.get("log")),
+      ),
+  );
+  app.post("/planting-events", async (c) => {
+    const log = c.get("log");
+    log("planting_events.create.body_parsing");
+    const body = await readJson<PlantingEventCreateRequest>(c.req.raw);
+    log("planting_events.create.body_parsed");
+    const event = await savePlantingEvent(
+      c.get("db"),
+      body.id,
+      body,
+      true,
+      log,
+    );
+    c.header(
+      "Location",
+      `/functions/v1/api/planting-events/${encodeURIComponent(event.id)}`,
+    );
+    return c.json(event, 201);
+  });
+  app.put("/planting-events/:id", async (c) => {
+    const log = c.get("log");
+    log("planting_events.update.body_parsing");
+    const body = await readJson<PlantingEventUpdateRequest>(c.req.raw);
+    log("planting_events.update.body_parsed");
+    return c.json(
+      await savePlantingEvent(c.get("db"), c.req.param("id"), body, false, log),
+    );
+  });
+  app.delete("/planting-events/:id", async (c) => {
+    await deactivatePlantingEvent(c.get("db"), c.req.param("id"), c.get("log"));
+    return c.body(null, 204);
+  });
+  app.all("/planting-events", (c) => {
+    c.header("Allow", "GET, HEAD, POST, OPTIONS");
+    throw new HttpError(405, "validation_error", "Method not allowed.");
+  });
+  app.all("/planting-events/:id", (c) => {
     c.header("Allow", "GET, HEAD, PUT, DELETE, OPTIONS");
     throw new HttpError(405, "validation_error", "Method not allowed.");
   });
