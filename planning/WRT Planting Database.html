@@ -1,0 +1,612 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>WRT Planting Database</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Source+Code+Pro:wght@400;600&display=swap">
+<style>
+/* Layout: one 66ch reading column, wide figures break out to 1100px; old layer in stone, new layer in moss, the link between them in kōwhai yellow. */
+:root {
+  --bg: #F4F6F1; --surface: #FFFFFF; --ink: #1B231D; --ink-2: #4D5B51; --rule: #D5DBD2;
+  --new: #2D6A49; --new-bg: #E2EEE5; --on-new: #FFFFFF;
+  --old: #7A5B37; --old-bg: #F0E9DE;
+  --link: #A87300; --code-bg: #ECF0EA;
+  --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --sans: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Source Code Pro", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* type scale, ratio 1.25 on 17px */
+  --s-1: 0.8rem; --s0: 1.0625rem; --s1: 1.33rem; --s2: 1.66rem; --s3: 2.07rem; --s4: 3rem;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111712; --surface: #182019; --ink: #E3EAE4; --ink-2: #9DAAA0; --rule: #2C3830;
+  --new: #7CC59A; --new-bg: #1B3124; --on-new: #0C1A11;
+  --old: #D6B78E; --old-bg: #2E261C; --link: #E8B93A; --code-bg: #1D261F; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #111712; --surface: #182019; --ink: #E3EAE4; --ink-2: #9DAAA0; --rule: #2C3830;
+  --new: #7CC59A; --new-bg: #1B3124; --on-new: #0C1A11;
+  --old: #D6B78E; --old-bg: #2E261C; --link: #E8B93A; --code-bg: #1D261F; color-scheme: dark; }
+
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: var(--s0); line-height: 1.62; font-kerning: normal; text-rendering: optimizeLegibility; }
+.page { max-width: 1100px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 56px 88px; display: grid; gap: 72px; }
+section, header { display: grid; gap: 20px; min-width: 0; }
+.col { max-width: 66ch; display: grid; gap: 16px; }
+
+h1, h2 { font-family: var(--serif); font-weight: 600; line-height: 1.12; margin: 0; text-wrap: balance; font-optical-sizing: auto; }
+h1 { font-size: clamp(2.3rem, 6vw, var(--s4)); letter-spacing: -0.015em; }
+h2 { font-size: var(--s3); letter-spacing: -0.01em; }
+h3 { font-family: var(--sans); font-size: var(--s0); font-weight: 700; margin: 0; line-height: 1.3; }
+p { margin: 0; text-wrap: pretty; }
+.lead { font-family: var(--serif); font-size: var(--s1); line-height: 1.5; max-width: 34em; }
+.lead strong { font-weight: 600; }
+.label { font-size: var(--s-1); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.muted { color: var(--ink-2); }
+.small { font-size: 0.94rem; }
+code { font-family: var(--mono); font-size: 0.86em; }
+:not(pre) > code { background: var(--code-bg); padding: 0.08em 0.32em; border-radius: 3px; white-space: nowrap; }
+a { color: var(--new); text-underline-offset: 0.18em; }
+strong { font-weight: 650; }
+
+.facts { display: flex; flex-wrap: wrap; gap: 4px 24px; font-size: 0.95rem; color: var(--ink-2); font-variant-numeric: tabular-nums lining-nums; }
+.facts b { color: var(--ink); font-weight: 650; }
+nav { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.95rem; padding-top: 4px; border-top: 1px solid var(--rule); }
+nav a { color: var(--ink-2); text-decoration: none; padding-top: 10px; }
+nav a:hover, nav a:focus-visible { color: var(--new); text-decoration: underline; outline: none; }
+
+ol.short { margin: 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 12px; max-width: 66ch; }
+ol.short li { counter-increment: s; display: grid; grid-template-columns: 2rem minmax(0, 1fr); }
+ol.short li::before { content: counter(s); font-family: var(--serif); font-size: var(--s1); line-height: 1.2; color: var(--new); font-weight: 600; }
+
+/* figures */
+figure { margin: 0; display: grid; gap: 12px; }
+.fig { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px; overflow-x: auto; }
+.fig svg { display: block; width: 100%; height: auto; color: var(--ink); }
+figcaption { font-size: 0.94rem; color: var(--ink-2); max-width: 66ch; }
+.b-new { fill: var(--new-bg); stroke: var(--new); stroke-width: 1.4; }
+.b-core { fill: var(--new); stroke: var(--new); }
+.b-old { fill: var(--old-bg); stroke: var(--old); stroke-width: 1.4; stroke-dasharray: 5 3; }
+.b-plain { fill: var(--surface); stroke: var(--rule); stroke-width: 1.2; }
+.t-h { font-family: var(--mono); font-size: 13px; font-weight: 600; fill: var(--ink); }
+.t-s { font-family: var(--sans); font-size: 12.5px; fill: var(--ink-2); }
+.t-big { font-family: var(--serif); font-size: 17px; font-weight: 600; fill: var(--ink); }
+.on-core .t-h, .on-core .t-s { fill: var(--on-new); }
+.t-old { fill: var(--old); }
+.e { stroke: currentColor; stroke-width: 1.3; fill: none; opacity: 0.7; }
+.e.opt { stroke-dasharray: 5 4; }
+.e.lk { stroke: var(--link); stroke-width: 2; stroke-dasharray: 6 4; opacity: 1; }
+.ah { fill: currentColor; opacity: 0.7; }
+.ah-lk { fill: var(--link); }
+.e-l { font-family: var(--serif); font-style: italic; font-size: 13px; fill: var(--ink-2); }
+.e-lk { font-family: var(--serif); font-style: italic; font-size: 13px; fill: var(--link); }
+
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.layer { border-radius: 8px; padding: 18px 20px; display: grid; gap: 10px; align-content: start; }
+.layer.old { background: var(--old-bg); border: 1px dashed var(--old); }
+.layer.new { background: var(--new-bg); border: 1px solid var(--new); }
+.layer h3 { font-family: var(--serif); font-size: var(--s1); font-weight: 600; }
+.layer ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+
+/* worked example */
+.day { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 20px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.day.hist { border-top: 3px solid var(--new); }
+.day.ex { border-top: 3px dashed var(--ink-2); }
+.day .where { font-family: var(--serif); font-size: var(--s1); font-weight: 600; line-height: 1.25; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.kv dt { font-family: var(--mono); font-size: 0.82rem; color: var(--ink-2); padding-top: 2px; }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.empty { color: var(--ink-2); font-style: italic; }
+.trace { border-left: 2px dashed var(--link); padding-left: 12px; font-size: 0.93rem; display: grid; gap: 4px; }
+.trace .label { color: var(--link); }
+.tag { display: inline-block; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 7px; border-radius: 3px; background: var(--code-bg); color: var(--ink-2); }
+
+/* four cases */
+.cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.case { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; display: grid; gap: 8px; align-content: start; }
+.case .qty { font-family: var(--serif); font-size: var(--s2); font-weight: 600; line-height: 1; font-variant-numeric: lining-nums tabular-nums; }
+.case .qty.none { color: var(--ink-2); font-style: italic; font-size: var(--s1); }
+.case .who { font-weight: 650; line-height: 1.3; }
+.case p { font-size: 0.95rem; }
+.flag { justify-self: start; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; }
+.flag.ok { background: var(--new-bg); color: var(--new); }
+.flag.rv { background: var(--old-bg); color: var(--old); }
+
+/* tables */
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { text-align: left; vertical-align: top; padding: 9px 14px; border-top: 1px solid var(--rule); }
+thead th { border-top: none; font-size: var(--s-1); font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
+td.c { font-family: var(--mono); font-size: 0.86rem; white-space: nowrap; }
+tbody th { font-weight: 650; }
+
+.group { display: grid; gap: 10px; }
+.group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.group-head h3 { font-family: var(--serif); font-size: var(--s1); font-weight: 600; }
+details { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; }
+details.core { border-color: var(--new); }
+summary { cursor: pointer; list-style: none; padding: 12px 16px; display: grid; grid-template-columns: minmax(150px, 200px) minmax(0, 1fr) auto; gap: 2px 16px; align-items: baseline; }
+summary::-webkit-details-marker { display: none; }
+summary:focus-visible { outline: 2px solid var(--new); outline-offset: -2px; border-radius: 8px; }
+summary .nm { font-family: var(--mono); font-weight: 600; font-size: 0.9rem; }
+summary .ds { font-size: 0.95rem; }
+summary .ct { font-size: 0.86rem; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+summary .ct::after { content: "  +"; font-family: var(--mono); }
+details[open] summary .ct::after { content: "  −"; }
+.cols { padding: 0 16px 14px; overflow-x: auto; }
+.cols table { font-size: 0.92rem; }
+.cols td { padding: 7px 12px 7px 0; }
+.cols td:first-child { font-family: var(--mono); font-size: 0.84rem; white-space: nowrap; }
+.cols td:nth-child(2) { color: var(--ink-2); font-size: 0.88rem; white-space: nowrap; }
+.fk { color: var(--new); font-weight: 600; }
+.lk { color: var(--link); font-weight: 600; }
+@media (max-width: 640px) { summary { grid-template-columns: 1fr auto; } summary .ds { grid-column: 1 / -1; grid-row: 2; } }
+
+pre { margin: 0; background: var(--code-bg); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 0.82rem; line-height: 1.6; }
+.steps { margin: 0; padding: 0; list-style: none; counter-reset: st; display: grid; gap: 14px; max-width: 66ch; }
+.steps li { counter-increment: st; display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 4px 0; }
+.steps li::before { content: counter(st); grid-row: span 2; font-family: var(--serif); font-weight: 600; font-size: var(--s1); color: var(--new); line-height: 1.25; }
+ul.plain { margin: 0; padding-left: 1.15em; display: grid; gap: 6px; max-width: 66ch; }
+footer { font-size: 0.9rem; color: var(--ink-2); border-top: 1px solid var(--rule); padding-top: 18px; }
+@media (prefers-reduced-motion: no-preference) { details[open] .cols { animation: fade .16s ease-out; } @keyframes fade { from { opacity: 0; } } }
+</style>
+
+<div class="page">
+
+<header>
+  <div class="label">Wakatipu Reforestation Trust · database design · 19 October 2026</div>
+  <h1>The planting database</h1>
+  <p class="lead">Every number WRT has recorded comes down to one sentence: <strong>this many plants of this species went to this part of a site in this season.</strong> The database is built around that sentence.</p>
+  <div class="facts">
+    <span><b>140,068</b> plants recorded</span><span><b>5,449</b> lines</span><span><b>360</b> planting events</span><span><b>39</b> sites</span><span><b>78</b> areas</span><span><b>164</b> species</span><span><b>23</b> seasons, Autumn 2015 to Autumn 2026</span>
+  </div>
+  <div class="col">
+    <div class="label">In short</div>
+    <ol class="short">
+      <li><p>There are two layers. The <strong>old layer</strong> keeps the workbook data exactly as it came out. The <strong>new layer</strong> is the model the app uses, and it is built from the old one.</p></li>
+      <li><p>History and new planting days share the same tables. A history event has a season but no date. A new event must have a date.</p></li>
+      <li><p>Every history number can be traced back to the spreadsheet cell it came from.</p></li>
+      <li><p>The whole design is written once, in TypeScript, with Drizzle. The database changes, the types and the form checks are all generated from that one place.</p></li>
+    </ol>
+  </div>
+  <nav aria-label="Sections">
+    <a href="#layers">Two layers</a><a href="#model">The new model</a><a href="#day">One day, two ways</a><a href="#cases">Four records</a><a href="#tables">Every table</a><a href="#rules">Rules</a><a href="#access">Who sees what</a><a href="#working">Working with it</a><a href="#gaps">Not in it yet</a>
+  </nav>
+</header>
+
+<section id="layers">
+  <div class="col">
+    <h2>Two layers</h2>
+    <p>The workbook is messy, and a third of its plants still wait on WRT rulings. So we keep it as it was and build a cleaner model on top. Nothing in the new layer replaces the old; it points back to it.</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 1040 330" role="img" aria-label="The old layer holds the workbook's five files. An import builds the new layer from them. Every history line in the new layer points back to its row in the old layer.">
+        <defs>
+          <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-lk" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+        <rect class="b-old" x="16" y="16" width="360" height="250" rx="8"/>
+        <text class="t-big" x="36" y="48">Old layer</text>
+        <text class="t-s" x="36" y="68">schema legacy · the workbook, as it came out</text>
+        <text class="t-h" x="36" y="104">planting_history</text><text class="t-s" x="210" y="104">5,449 rows</text>
+        <text class="t-h" x="36" y="130">species_register</text><text class="t-s" x="210" y="130">164 rows</text>
+        <text class="t-h" x="36" y="156">species_crosswalk</text><text class="t-s" x="210" y="156">728 rows</text>
+        <text class="t-h" x="36" y="182">site_crosswalk</text><text class="t-s" x="210" y="182">134 rows</text>
+        <text class="t-h" x="36" y="208">reconciliation</text><text class="t-s" x="210" y="208">29 rows</text>
+        <text class="t-h" x="36" y="234">imports</text><text class="t-s" x="210" y="234">the data version</text>
+
+        <line class="e" x1="384" y1="140" x2="586" y2="140" marker-end="url(#a1)"/>
+        <text class="e-l" x="485" y="128" text-anchor="middle">the import builds</text>
+
+        <rect class="b-new" x="594" y="16" width="430" height="250" rx="8"/>
+        <text class="t-big" x="614" y="48">New layer</text>
+        <text class="t-s" x="614" y="68">schema public · what the app reads and staff edit</text>
+        <text class="t-s" x="614" y="104">Where</text><text class="t-h" x="740" y="104">sites · site_areas · site_locations</text>
+        <text class="t-s" x="614" y="130">What</text><text class="t-h" x="740" y="130">species · profiles · photos</text>
+        <text class="t-s" x="614" y="156">When, how many</text><text class="t-h" x="740" y="156">seasons · planting_events</text>
+        <text class="t-h" x="740" y="182">planting_lines</text>
+        <text class="t-s" x="614" y="208">Questions</text><text class="t-h" x="740" y="208">line_notes · review_topics</text>
+        <text class="t-s" x="614" y="234">People</text><text class="t-h" x="740" y="234">profiles</text>
+
+        <polyline class="e lk" points="736,177 560,177 560,300 200,300 200,276" marker-end="url(#a2)"/>
+        <text class="e-lk" x="380" y="318" text-anchor="middle">every history line points back to its row</text>
+      </svg>
+    </div>
+  </figure>
+  <div class="pair">
+    <div class="layer old">
+      <h3>Old layer</h3>
+      <ul>
+        <li>Holds the five files the workbook was turned into, unchanged.</li>
+        <li>Only the import writes to it. Each import replaces it.</li>
+        <li>Staff can read it. The app's public API never sees it.</li>
+      </ul>
+    </div>
+    <div class="layer new">
+      <h3>New layer</h3>
+      <ul>
+        <li>The model the app reads and staff edit.</li>
+        <li>Each import updates it without changing any ids.</li>
+        <li>New planting days go straight in, with no old row behind them.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="model">
+  <div class="col">
+    <h2>The new model</h2>
+    <p>Eleven tables, with one at the centre. A <strong>planting event</strong> is one area of a site in one season. Its <strong>lines</strong> say how many of each species went in. Everything else describes where, what, when, or what is still in question.</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 960 590" role="img" aria-label="Map of the new layer. A planting line belongs to an event and a species, and points back to its legacy row. An event is at a site area in a season. Areas belong to sites. Pins mark a site or one area. Notes sit on lines and are filed under review topics. Profiles and photos describe species.">
+        <defs>
+          <marker id="b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="b2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-lk" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+        <!-- edges -->
+        <line class="e" x1="480" y1="140" x2="480" y2="86" marker-end="url(#b1)"/><text class="e-l" x="490" y="118">part of</text>
+        <line class="e" x1="698" y1="52" x2="582" y2="52" marker-end="url(#b1)"/><text class="e-l" x="640" y="44" text-anchor="middle">marks</text>
+        <polyline class="e opt" points="800,86 800,172 582,172" marker-end="url(#b1)"/><text class="e-l" x="810" y="134">or one area</text>
+        <line class="e" x1="480" y1="260" x2="480" y2="206" marker-end="url(#b1)"/><text class="e-l" x="490" y="238">at</text>
+        <line class="e" x1="378" y1="292" x2="252" y2="292" marker-end="url(#b1)"/><text class="e-l" x="315" y="284" text-anchor="middle">in</text>
+        <line class="e" x1="480" y1="380" x2="480" y2="326" marker-end="url(#b1)"/><text class="e-l" x="490" y="358">on</text>
+        <line class="e" x1="582" y1="412" x2="708" y2="412" marker-end="url(#b1)"/><text class="e-l" x="645" y="404" text-anchor="middle">of</text>
+        <line class="e lk" x1="378" y1="412" x2="252" y2="412" marker-end="url(#b2)"/><text class="e-lk" x="315" y="404" text-anchor="middle">came from</text>
+        <line class="e" x1="480" y1="500" x2="480" y2="446" marker-end="url(#b1)"/><text class="e-l" x="490" y="478">about</text>
+        <line class="e" x1="378" y1="532" x2="252" y2="532" marker-end="url(#b1)"/><text class="e-l" x="315" y="524" text-anchor="middle">filed under</text>
+        <line class="e" x1="700" y1="500" x2="770" y2="446" marker-end="url(#b1)"/><text class="e-l" x="692" y="478" text-anchor="end">describe</text>
+        <line class="e" x1="880" y1="500" x2="880" y2="446" marker-end="url(#b1)"/><text class="e-l" x="890" y="478">show</text>
+        <!-- boxes -->
+        <rect class="b-new" x="380" y="22" width="200" height="64" rx="6"/><text class="t-h" x="394" y="48">sites</text><text class="t-s" x="394" y="68">39 · Lake Hayes, Whitechapel</text>
+        <rect class="b-new" x="700" y="22" width="220" height="64" rx="6"/><text class="t-h" x="714" y="48">site_locations</text><text class="t-s" x="714" y="68">50 · map pin and radius</text>
+        <rect class="b-new" x="380" y="142" width="200" height="64" rx="6"/><text class="t-h" x="394" y="168">site_areas</text><text class="t-s" x="394" y="188">78 · WRT number, class</text>
+        <rect class="b-new" x="50" y="260" width="200" height="64" rx="6"/><text class="t-h" x="64" y="286">seasons</text><text class="t-s" x="64" y="306">23 · Autumn and Spring</text>
+        <rect class="b-new" x="380" y="262" width="200" height="64" rx="6"/><text class="t-h" x="394" y="288">planting_events</text><text class="t-s" x="394" y="308">360 · an area in a season</text>
+        <g class="on-core"><rect class="b-core" x="380" y="382" width="200" height="64" rx="6"/><text class="t-h" x="394" y="408">planting_lines</text><text class="t-s" x="394" y="428">5,449 · species and count</text></g>
+        <rect class="b-new" x="710" y="382" width="210" height="64" rx="6"/><text class="t-h" x="724" y="408">species</text><text class="t-s" x="724" y="428">164 · WRT's plant register</text>
+        <rect class="b-old" x="50" y="380" width="200" height="64" rx="6"/><text class="t-h t-old" x="64" y="406">legacy.planting_history</text><text class="t-s" x="64" y="426">5,449 · the workbook rows</text>
+        <rect class="b-new" x="380" y="502" width="200" height="64" rx="6"/><text class="t-h" x="394" y="528">line_notes</text><text class="t-s" x="394" y="548">1,501 · why it needs review</text>
+        <rect class="b-new" x="50" y="502" width="200" height="64" rx="6"/><text class="t-h" x="64" y="528">review_topics</text><text class="t-s" x="64" y="548">9 · questions and rulings</text>
+        <rect class="b-new" x="620" y="502" width="150" height="64" rx="6"/><text class="t-h" x="634" y="528">species_profiles</text><text class="t-s" x="634" y="548">95 · write-ups</text>
+        <rect class="b-new" x="790" y="502" width="150" height="64" rx="6"/><text class="t-h" x="804" y="528">species_photos</text><text class="t-s" x="804" y="548">280 · with credit</text>
+      </svg>
+    </div>
+    <figcaption>Read each arrow as a sentence. A line is <em>on</em> an event and <em>of</em> a species. An event is <em>at</em> an area <em>in</em> a season. Arrows run from the many side to the one it belongs to: one season has many events, and each event has one season. The yellow arrow is the link back to the old layer. Staff profiles are left off; they sit behind the edit trail on every table.</figcaption>
+  </figure>
+</section>
+
+<section id="day">
+  <div class="col">
+    <h2>One day of planting, two ways</h2>
+    <p>History and new data use the same two tables. The difference is what they know. The workbook recorded a season, a place and counts, but never a date or the kind of planting. A day staff record in the app knows all of these.</p>
+  </div>
+  <div class="pair">
+    <div class="day hist">
+      <span class="tag">From the workbook</span>
+      <div class="where">Whitechapel Reserve, Autumn 2019</div>
+      <dl class="kv">
+        <dt>source</dt><dd>workbook</dd>
+        <dt>planting_date</dt><dd class="empty">empty: never recorded</dd>
+        <dt>event_type</dt><dd class="empty">empty: never recorded</dd>
+        <dt>lines</dt><dd>25 species, 1,005 plants: Mingimingi 200, Kōwhai 100, <i>Olearia lineata</i> 60, Silver tussock 50…</dd>
+      </dl>
+      <div class="trace">
+        <span class="label">The Kōwhai line, traced back</span>
+        <span><code>quantity</code> 100 · <code>needs_review</code> no · <code>legacy_code</code> PH-2019A-FK96</span>
+        <span>Old row: cell FK96 of the MASTER sheet, typed as “Whitechapel” and “Sophora microphylla”.</span>
+      </div>
+    </div>
+    <div class="day ex">
+      <span class="tag">Example, not real data</span>
+      <div class="where">Whitechapel Reserve, Autumn 2026</div>
+      <dl class="kv">
+        <dt>source</dt><dd>app</dd>
+        <dt>planting_date</dt><dd>9 May 2026 (required)</dd>
+        <dt>event_type</dt><dd>infill</dd>
+        <dt>lines</dt><dd>Kōwhai 40; Mingimingi, count not yet in</dd>
+        <dt>legacy_code</dt><dd class="empty">empty: there is no old row</dd>
+        <dt>created_by</dt><dd>the staff member who saved it</dd>
+      </dl>
+      <p class="small muted">Leave out the date and the database refuses the event. A count not yet in is stored as empty, never as 0.</p>
+    </div>
+  </div>
+</section>
+
+<section id="cases">
+  <div class="col">
+    <h2>Four records, four cases</h2>
+    <p>Most lines are like the first. The other three show why the model needs a review flag, an empty quantity and a way to mark schemes.</p>
+  </div>
+  <div class="cases">
+    <div class="case">
+      <span class="flag ok">Settled</span>
+      <div class="qty">100</div>
+      <div class="who">Kōwhai at Whitechapel Reserve, Autumn 2019</div>
+      <p>Nothing to check. The site and species were matched with high confidence from cell FK96.</p>
+    </div>
+    <div class="case">
+      <span class="flag rv">Waiting on a ruling</span>
+      <div class="qty">4,400</div>
+      <div class="who">Black matipo (kohukohu) at Slope Hill HGF, Spring 2024</div>
+      <p>The largest single entry. Its note sits under the topic “Slope Hill 2024 columns”: WRT must decide whether those two columns, 29,000 plants in all, were real plantings. The area has only a provisional number.</p>
+    </div>
+    <div class="case">
+      <span class="flag rv">No number</span>
+      <div class="qty none">empty</div>
+      <div class="who">Prickly mingimingi at Quail Rise, Spring 2025</div>
+      <p>The cell said “TBC”, so the quantity is empty, not 0. The species is in contested group C1 with <i>Cyathoides juniperina</i>; until WRT rules they are one plant, their counts stay apart.</p>
+    </div>
+    <div class="case">
+      <span class="flag rv">Not a place</span>
+      <div class="qty">26</div>
+      <div class="who">Red tussock (haumata) through Paper4Trees, Spring 2025</div>
+      <p>Paper4Trees is an order scheme. Its site is marked <code>is_scheme</code>, its area has no class and it has no pin. WRT must rule how scheme plants count.</p>
+    </div>
+  </div>
+</section>
+
+<section id="tables">
+  <div class="col">
+    <h2>Every table</h2>
+    <p>Open a table to see its columns. Green names are links to other tables; the yellow one is the link back to the old layer.</p>
+    <p class="small muted">Every table staff edit also carries five columns not listed below: <code>created_at</code>, <code>created_by</code>, <code>updated_at</code>, <code>updated_by</code> and <code>deactivated_at</code>. The database fills in the first four. Rows are never deleted; setting <code>deactivated_at</code> retires them.</p>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><h3>When and how many</h3><span class="muted small">the core</span></div>
+    <details class="core" open>
+      <summary><span class="nm">planting_lines</span><span class="ds">How many of one species went in at one event.</span><span class="ct">5,449</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td>id</td><td>number</td><td>The line's key.</td></tr>
+        <tr><td class="fk">event_id</td><td>→ planting_events</td><td>The event it belongs to.</td></tr>
+        <tr><td class="fk">species_id</td><td>→ species</td><td>The plant. Each species appears once per event.</td></tr>
+        <tr><td>quantity</td><td>whole number</td><td>How many. Empty when unknown, never 0.</td></tr>
+        <tr><td>needs_review</td><td>yes / no</td><td>Yes while WRT still has to rule on or confirm it. 667 lines, 44,290 plants.</td></tr>
+        <tr><td class="lk">legacy_code</td><td>→ legacy.planting_history</td><td>History lines only: the old row this line came from, such as PH-2019A-FK96.</td></tr>
+      </tbody></table></div>
+    </details>
+    <details class="core">
+      <summary><span class="nm">planting_events</span><span class="ds">One area of a site in one season, and for new events one date.</span><span class="ct">360 from history</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td>id</td><td>number</td><td>The event's key.</td></tr>
+        <tr><td class="fk">site_area_id</td><td>→ site_areas</td><td>Where. The site comes through the area.</td></tr>
+        <tr><td class="fk">season_id</td><td>→ seasons</td><td>When, to the season.</td></tr>
+        <tr><td>planting_date</td><td>date</td><td>The day. Required for new events, empty for history.</td></tr>
+        <tr><td>event_type</td><td>establishment / infill / replacement</td><td>What kind of planting. Empty for history.</td></tr>
+        <tr><td>source</td><td>workbook / app</td><td>Where the event came from.</td></tr>
+        <tr><td>notes, is_public</td><td>text, yes / no</td><td>Staff notes, and whether the public map may show it.</td></tr>
+      </tbody></table></div>
+    </details>
+    <details>
+      <summary><span class="nm">seasons</span><span class="ds">Autumn and Spring of each year. WRT plans and reports by season.</span><span class="ct">23</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td>id, slug</td><td>number, text</td><td>The key, and “autumn-2024” for links.</td></tr>
+        <tr><td>year, name, label</td><td>number, Autumn / Spring, text</td><td>2024, Autumn, “Autumn 2024”.</td></tr>
+        <tr><td>sort_order</td><td>number</td><td>0 is Autumn 2015. Sort by this, as Autumn comes before Spring.</td></tr>
+        <tr><td>workbook_total, workbook_cell</td><td>number, text</td><td>What the season's own total cell says, and where. All 23 agree with the lines.</td></tr>
+      </tbody></table></div>
+    </details>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><h3>Where</h3></div>
+    <details>
+      <summary><span class="nm">sites</span><span class="ds">A place people plant, such as Lake Hayes. Paper4Trees is here too, marked as a scheme.</span><span class="ct">39</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td>id, slug</td><td>number, text</td><td>The key, and “lake-hayes” for links.</td></tr>
+        <tr><td>name, description</td><td>text</td><td>The name, and staff's own description.</td></tr>
+        <tr><td>is_scheme</td><td>yes / no</td><td>Yes for Paper4Trees: an order scheme, not a place.</td></tr>
+        <tr><td>is_public</td><td>yes / no</td><td>Whether the public map may show it. No until staff say so.</td></tr>
+      </tbody></table></div>
+    </details>
+    <details>
+      <summary><span class="nm">site_areas</span><span class="ds">A part of a site as WRT registers it, with its number and class.</span><span class="ct">78</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td>id</td><td>number</td><td>The area's key.</td></tr>
+        <tr><td class="fk">site_id</td><td>→ sites</td><td>The site it belongs to.</td></tr>
+        <tr><td>slug, name</td><td>text</td><td>“lake-hayes-pavilion”, unique within its site. Two areas share the name “Shotover River”, so one is <code>shotover-river-2</code>.</td></tr>
+        <tr><td>wrt_number</td><td>text</td><td>WRT's site number: “9G”, “13C” or a provisional “NEW-…”. Empty if none.</td></tr>
+        <tr><td>site_class</td><td>keystone / community / school</td><td>Empty for Paper4Trees.</td></tr>
+        <tr><td>description, is_public</td><td>text, yes / no</td><td>As for sites.</td></tr>
+      </tbody></table></div>
+    </details>
+    <details>
+      <summary><span class="nm">site_locations</span><span class="ds">A map pin, with a radius wide enough to cover private land.</span><span class="ct">50</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td>id, slug</td><td>number, text</td><td>The key, and “slope-hill-riparian”.</td></tr>
+        <tr><td class="fk">site_id</td><td>→ sites</td><td>The site it marks. A site has at most one whole-site pin.</td></tr>
+        <tr><td class="fk">site_area_id</td><td>→ site_areas, optional</td><td>Set when the pin marks one area (36 of 50 do). That area must belong to the same site.</td></tr>
+        <tr><td>latitude, longitude</td><td>number</td><td>Where the pin goes.</td></tr>
+        <tr><td>radius_m</td><td>whole number</td><td>Metres around the pin. Empty until staff set it.</td></tr>
+        <tr><td>accuracy</td><td>historic-event / landmark / surveyed</td><td>How the point was found. “Surveyed” is for pins staff place on site.</td></tr>
+        <tr><td>label, description, sources, checked_on</td><td>text, date</td><td>What the pin shows, and where the point came from.</td></tr>
+      </tbody></table></div>
+    </details>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><h3>What</h3></div>
+    <details>
+      <summary><span class="nm">species</span><span class="ds">WRT's plant register. 95 of the 164 have been planted.</span><span class="ct">164</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td>id, slug</td><td>number, text</td><td>The key, and “sophora-microphylla”.</td></tr>
+        <tr><td>scientific_name, suggested_spelling</td><td>text</td><td>The register's spelling, and the usual one where they differ.</td></tr>
+        <tr><td>common_name, maori_name</td><td>text</td><td>With macrons. The app shows the Māori name first.</td></tr>
+        <tr><td>status</td><td>core / appended / contested / seedlog_only</td><td>Where the name came from in the register.</td></tr>
+        <tr><td>over_5m</td><td>yes / no / empty</td><td>Trees That Count's flag for trees that grow over 5 m.</td></tr>
+        <tr><td>threatened, threatened_te_kakano</td><td>yes / no</td><td>WRT's two threatened lists. They disagree, so both are kept.</td></tr>
+        <tr><td>contested_group</td><td>text</td><td>“C1” to “C9”: names WRT has not yet ruled are one plant or two.</td></tr>
+        <tr><td>needs_decision, register_note, register_code</td><td>yes / no, text</td><td>WRT's open questions on the name, and the old “SP-” code for checking only.</td></tr>
+      </tbody></table></div>
+    </details>
+    <details>
+      <summary><span class="nm">species_profiles</span><span class="ds">A short write-up of each planted species for staff and volunteers.</span><span class="ct">95</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td class="fk">species_id</td><td>→ species</td><td>One profile per species.</td></tr>
+        <tr><td>common_name, maori_names, name_note</td><td>text, list, text</td><td>Names as the profile gives them.</td></tr>
+        <tr><td>summary, look_for</td><td>text</td><td>What it is, and how to tell it apart.</td></tr>
+        <tr><td>sources, checked_on</td><td>list of links, date</td><td>Where the text came from.</td></tr>
+        <tr><td>photos_status, photos_note, photos_summary, photos_checked_on</td><td>text, date</td><td>Whether its photos were checked by eye.</td></tr>
+      </tbody></table></div>
+    </details>
+    <details>
+      <summary><span class="nm">species_photos</span><span class="ds">Reference photos from elsewhere, with the credit their licence requires.</span><span class="ct">280</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td class="fk">species_id, position</td><td>→ species, number</td><td>Together, the photo's key. Position sets the order.</td></tr>
+        <tr><td>src, width, height, focal_point</td><td>text, number</td><td>The image and how to crop it.</td></tr>
+        <tr><td>caption, author, license, license_url</td><td>text</td><td>The credit. CC BY photos must name the author.</td></tr>
+        <tr><td>source_name, source_url, article_url, article_label, observation_url, retrieved_on</td><td>text, date</td><td>Where it came from: Wikimedia Commons or iNaturalist.</td></tr>
+      </tbody></table></div>
+    </details>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><h3>Questions</h3></div>
+    <details>
+      <summary><span class="nm">review_topics</span><span class="ds">The nine questions WRT needs to answer once, and the answer when it comes.</span><span class="ct">9</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td>id, slug</td><td>number, text</td><td>The key, and “slope-hill-2024”.</td></tr>
+        <tr><td>label, question</td><td>text</td><td>“Were the 22,000 Slope Hill HGF and 7,000 Coronation plants real plantings, and should they count?”</td></tr>
+        <tr><td>decision, decided_on, decided_by</td><td>text, date, text</td><td>WRT's ruling in their own words. Empty until they decide.</td></tr>
+      </tbody></table></div>
+    </details>
+    <details>
+      <summary><span class="nm">line_notes</span><span class="ds">Why a line needs review, or how it was read.</span><span class="ct">1,501</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td class="fk">line_id</td><td>→ planting_lines</td><td>The line it is about.</td></tr>
+        <tr><td class="fk">topic_id</td><td>→ review_topics</td><td>The question it belongs to.</td></tr>
+        <tr><td>kind</td><td>ruling / confirm / fyi</td><td>WRT must decide; check once; or for information only.</td></tr>
+        <tr><td>text</td><td>text</td><td>The note itself.</td></tr>
+      </tbody></table></div>
+    </details>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><h3>People</h3></div>
+    <details>
+      <summary><span class="nm">profiles</span><span class="ds">Who can sign in, and whether they are staff. Supabase Auth holds the account itself.</span><span class="ct">added by an admin</span></summary>
+      <div class="cols"><table><tbody>
+        <tr><td class="fk">id</td><td>→ Supabase Auth user</td><td>The same id as the sign-in account.</td></tr>
+        <tr><td>display_name</td><td>text</td><td>The name shown on edits.</td></tr>
+        <tr><td>is_staff</td><td>yes / no</td><td>Staff can edit. Others can only read what is published.</td></tr>
+        <tr><td>created_at, deactivated_at</td><td>time</td><td>When they were added, and when access ended.</td></tr>
+      </tbody></table></div>
+    </details>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><h3>The old layer</h3><span class="muted small">schema <code>legacy</code>, written only by the import</span></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Table</th><th>From the file</th><th class="n">Rows</th></tr></thead>
+      <tbody>
+        <tr><td class="c">planting_history</td><td>The MASTER sheet, one row per filled cell</td><td class="n">5,449</td></tr>
+        <tr><td class="c">species_register</td><td>WRT's species register as extracted</td><td class="n">164</td></tr>
+        <tr><td class="c">species_crosswalk</td><td>Every spelling of a plant name found in WRT's files</td><td class="n">728</td></tr>
+        <tr><td class="c">site_crosswalk</td><td>Every site header and how it was read</td><td class="n">134</td></tr>
+        <tr><td class="c">reconciliation</td><td>Totals checked against the workbook's own total cells</td><td class="n">29</td></tr>
+        <tr><td class="c">imports</td><td>One row per import. Its id, such as f07f65109a0d, is the data version</td><td class="n">1</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section id="rules">
+  <div class="col">
+    <h2>Rules, and where they live</h2>
+    <p>Each rule sits as low as it can. The database enforces anything that must always be true, whatever writes the data. Zod repeats the rules a person filling in a form needs to see, so they get a clear message before anything is saved.</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Rule</th><th>Kept by</th></tr></thead>
+    <tbody>
+      <tr><td>A new event needs a date. A history event doesn't.</td><td>Database check</td></tr>
+      <tr><td>Each species appears once per event.</td><td>Database unique index</td></tr>
+      <tr><td>Quantities are whole numbers and never negative. An unknown count is empty.</td><td>Database check</td></tr>
+      <tr><td>A site has at most one pin, and so does each area.</td><td>Database unique indexes</td></tr>
+      <tr><td>A pin's area belongs to the pin's site.</td><td>Database foreign key</td></tr>
+      <tr><td>An old row can't be deleted while a line points at it.</td><td>Database foreign key</td></tr>
+      <tr><td>Who changed each row, and when.</td><td>Database default and trigger</td></tr>
+      <tr><td>Rows are retired, never deleted.</td><td>The <code>deactivated_at</code> column; access rules hide retired rows</td></tr>
+      <tr><td>The planting-day form: a real date, at least one species, each species once.</td><td>Zod</td></tr>
+      <tr><td>The content files are well formed. CC BY photos credit their author.</td><td>Zod, run by the import and the tests</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="access">
+  <div class="col">
+    <h2>Who sees what</h2>
+    <p>Supabase's access rules (row level security) decide this inside the database, so every app and tool gets the same answer. Nobody is staff until an admin adds them, and sign-in is by invitation only.</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Who</th><th>Sees</th><th>Can change</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Signed out</th><td>Published sites, areas, events and lines, and the species list</td><td>Nothing</td></tr>
+      <tr><th scope="row">Signed in, not staff</th><td>The same as signed out</td><td>Nothing</td></tr>
+      <tr><th scope="row">Staff</th><td>Everything, including review topics and the old layer</td><td>Anything in the new layer. Each change carries their name.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="col small muted">These rules apply to the browser, which talks to Supabase directly. Server code connects as the database owner, so it must check who is signed in before it writes.</p>
+</section>
+
+<section id="working">
+  <div class="col">
+    <h2>Working with it</h2>
+    <p>The design lives in one folder, <code>db/schema/</code>. Change it there and let the tools write the rest.</p>
+  </div>
+  <ol class="steps">
+    <li><strong>Change the design</strong><span class="muted">Edit the tables in <code>db/schema/</code>.</span></li>
+    <li><strong>Generate the change</strong><span class="muted"><code>npm run db:generate</code> writes a SQL migration. Read it before you run it.</span></li>
+    <li><strong>Apply it</strong><span class="muted"><code>npm run db:migrate</code> runs it against the database.</span></li>
+    <li><strong>Refresh the history</strong><span class="muted"><code>npm run db:import</code> rebuilds the old layer from the files and updates the new one.</span></li>
+  </ol>
+  <div class="pair">
+    <div class="col" style="gap: 10px">
+      <div class="label">A table, as it is written</div>
+      <pre>export const plantingLines = pgTable("planting_lines", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  eventId: integer().notNull().references(() =&gt; plantingEvents.id),
+  speciesId: integer().notNull().references(() =&gt; species.id),
+  quantity: integer(),           // empty = unknown, never 0
+  needsReview: boolean().notNull().default(false),
+  legacyCode: text().unique()
+    .references(() =&gt; plantingHistory.recordId),
+  ...editTrail(),
+}, (t) =&gt; [
+  check("quantity_not_negative", sql`${t.quantity} &gt;= 0`),
+  ...staffAccess(),
+]);</pre>
+    </div>
+    <div class="col" style="gap: 10px">
+      <div class="label">What the import promises</div>
+      <ul class="plain">
+        <li>It runs in one go. Everything loads, or nothing does.</li>
+        <li>Ids stay the same from one import to the next.</li>
+        <li>What staff changed stays changed: pins, descriptions, rulings.</li>
+        <li>Pins, profiles and photos are added only if they are missing.</li>
+        <li>A site or area that loses all its history is listed, not deleted.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="gaps">
+  <div class="col">
+    <h2>Not in it yet</h2>
+    <p>None of these are in WRT's data today. Each can be added as new tables, without changing what is here, once WRT asks for it.</p>
+    <ul class="plain">
+      <li>Survival and losses after planting.</li>
+      <li>Volunteers and the groups who planted.</li>
+      <li>Photos of plantings, as opposed to reference photos of species.</li>
+      <li>Drawn site boundaries, for when a pin and radius are not enough.</li>
+      <li>Nursery stock and seed lots.</li>
+    </ul>
+    <p class="small muted">Checked on Postgres 16 with the real data: every site, species and season total matches the current app; every line matches its old row; a second import keeps every id and every staff edit; the access rules and checks above all hold.</p>
+  </div>
+</section>
+
+<footer>Branch <code>supabase-data-shapes</code>, commit 2852e00, of the WRT app. Companion page: <em>WRT Planning Draft Review</em>.</footer>
+
+</div>
+
+</body></html>
