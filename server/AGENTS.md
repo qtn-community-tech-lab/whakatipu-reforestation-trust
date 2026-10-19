@@ -1,84 +1,107 @@
 # Server agent instructions
 
-These instructions apply to `server/` and its descendants. Read the relevant source, configuration and tests before changing them. Keep changes focused on the requested behavior and preserve unrelated work.
+These instructions apply to `server/` and its descendants. Read the relevant source and configuration before changing them. Keep changes focused on the requested behavior and preserve unrelated work.
 
 ## Project references and scope
 
-- [Backend specification](../planning/spec.md) is authoritative for architecture, behavior and acceptance requirements. Use [API types](../planning/api-types.ts) and [database rows](../planning/db-schema.ts) alongside it.
-- The database type comments still describe server-supplied IDs and passwordless auth, and `User` lacks `auth_user_id`. Follow the spec's caller-supplied IDs, Google/Supabase Auth and UUID mapping when implementing the database.
-- The existing function and Supabase configuration are starter scaffolding, not an implemented API or an alternative specification.
+- [Backend specification](../planning/spec.md) is authoritative, including its current development increment. Canonical API types are in `../shared/api-types.ts`. Import them with `import type` through the `@wrt/api-types` alias in the function's `deno.json`; this shared module contains types only. Generated persistence types live in `supabase/functions/_shared/database.types.ts`; keep HTTP contracts separate.
+- Species CRUD is implemented; the other resource endpoints and authentication are future work. Use `README.md` for local setup and checks.
 - Implement the current planting-records release. Do not add future planning, uploads, pagination, multi-tenancy, roles or custom authentication endpoints. Contract changes and paid services require James's direction.
+
+## Current development rules
+
+- No authentication: use the official SDK context with `auth: "none"` and `verify_jwt = false`. All requests have editor scope, including unpublished active data. Future authentication rules below are not active yet.
+- Writes use the fixed app user `usr_000000000001`, inserted by the domain migration. There is no separate seed script. Never accept audit identities from a request or create/reactivate the actor at startup. RPCs must check its active state.
+- Generate site, new site-location and species IDs with the existing ID helper. Site and species POST/PUT pairs share their editable body shapes. Site location input contains geometry only: update the existing owned location in place, create an ID if unlocated, and detach/deactivate on null. Site endpoints are not implemented yet; the remaining resource contracts retain their target ID behavior.
+- Assume requests match their TypeScript contracts. Do not introduce Zod, manual request/path validation or runtime response schemas. Parse JSON directly; malformed JSON is still 400. Forward only documented editable fields so extra ID/audit values cannot affect persistence. Database constraints remain required.
+- Keep the API-only data boundary: browser roles cannot access tables or privileged RPCs even while the Edge handler has no authentication.
+- Keep Postgres code as lightweight as possible. Assemble API response objects and nested arrays in TypeScript Edge Function code. This guidance supersedes older specification recommendations to build response JSON in SQL.
 
 ## Keep the code simple
 
-- Write clear, direct code that a smart graduate developer can understand and maintain. Prefer named functions, ordinary objects and explicit control flow.
+- Write at an advanced graduate level: clear, direct code that a graduate developer can understand and maintain. Apply this to TypeScript and SQL/PLpgSQL alike. Prefer named functions, ordinary objects and explicit control flow.
 - Give functions one clear responsibility. Use early returns for invalid cases and meaningful names for domain values. Avoid deeply nested conditions and clever one-liners.
 - Extract a helper when it removes meaningful repetition or gives a substantial business rule a clear name. A few similar lines do not justify a generic framework.
 - Do not introduce base classes, generic CRUD engines, repository interfaces, dependency-injection containers or a separate service for every resource. Add a module or dependency only when current behavior needs it.
-- Keep related code together. Separate routing, validation and database operations when that makes them easier to follow; avoid chains of functions that only forward arguments.
+- Keep related code together. Separate routing, database operations and response assembly when that makes them easier to follow; avoid chains of functions that only forward arguments. Do not add a request-validation layer.
 - Comment on reasons and non-obvious constraints, especially visibility, historical references and transaction locking. Do not narrate obvious code or duplicate the spec in comments.
 - Handle expected failures explicitly. Do not swallow errors, return success after failed writes or replace a failed database read with an empty result.
 
 ## Runtime and organization
 
-- Use one TypeScript Supabase Edge Function named `api`, running in the Deno-compatible runtime. A small router such as Hono is sufficient. Do not add a Node/Fastify server or additional deployed functions for domain routes.
-- Keep the entrypoint in `supabase/functions/api/index.ts`, database changes in `supabase/migrations/`, and operator work in `scripts/`. Add route/helper modules and tests as needed rather than scaffolding empty layers.
-- Keep request handling callable without starting a listener so HTTP behavior can be tested with ordinary `Request`/`Response` objects.
-- Use strict TypeScript, explicit `.ts` extensions for relative TypeScript imports, and `import type` for type-only imports. Avoid `any`, non-null assertions, unchecked casts and compiler suppressions; validate or narrow uncertain values.
+- Use one TypeScript Supabase Edge Function named `api`, running in the Deno-compatible runtime with Hono. Keep the supported `createSupabaseContext<Database>` integration and its privileged client; do not introduce deprecated framework adapters, a separate Node server or additional deployed functions for domain routes.
+- Keep the entrypoint in `supabase/functions/api/index.ts`, database changes in `supabase/migrations/`, and operator work in `scripts/`. Add route/helper modules as needed rather than scaffolding empty layers.
+- Follow the current modules: `app.ts` constructs Hono middleware/routes; `species.ts` performs database calls and builds DTOs; `http.ts` parses JSON and maps errors; `config.ts` owns configuration; `logging.ts` creates request loggers; `database.types.ts` refines generated RPC types. Keep `index.ts` as the small handler export.
+- Keep request handling independently constructible using ordinary `Request`/`Response` objects.
+- Use strict TypeScript, explicit `.ts` extensions for relative TypeScript imports, and `import type` for type-only imports. Avoid `any`, non-null assertions, unchecked casts and compiler suppressions. Narrow uncertain configuration or SDK values without adding runtime validation of HTTP contracts.
 - Use the function's `deno.json` for dependency aliases/configuration. Pin dependencies and commit the relevant lockfile; do not introduce a parallel Node toolchain for the API.
+- Local serving uses `supabase functions serve api` from `server/`. There is no separate application build task. Keep the root shared contracts type-only: Deno resolves `@wrt/api-types` during checking, and type imports disappear from runtime code. Do not assume runtime imports outside the function directory will work in the local container.
 - Read and validate environment configuration in one place. Keep privileged credentials in Edge/operator secrets, never frontend variables or committed `.env` files. Document required settings with placeholder values.
 
 ## Contracts and HTTP handling
 
-- Preserve the four interfaces per domain resource: `*CreateRequest`, `*UpdateRequest`, `*ListResponse`, `*Response`. Use `extends` for their specified reuse and keep small nested shapes inline. Do not derive public DTOs with `Omit`, `Pick` or mapped types.
-- Share the implemented contracts between client and server in one agreed module. Keep runtime validators aligned with those interfaces; TypeScript alone does not validate JSON. Use explicit validators or a small maintained library, not a custom validation framework.
+- Preserve the four named contracts per resource: `*CreateRequest`, `*UpdateRequest`, `*ListResponse`, `*Response`. Site and species create requests are type aliases of their update requests because the server supplies new IDs. Keep the other specified `extends` relationships and nested shapes inline. Do not derive public DTOs with `Omit`, `Pick` or mapped types. Generated database RPC result overrides are separate from these contracts.
+- Use the single canonical shared contract module; do not duplicate types in routes. TypeScript contracts are compile-time assumptions, not runtime validation. Keep the generated database file untouched by hand and put necessary RPC result refinements in `api/database.types.ts`, documenting what SQL guarantees that introspection cannot infer.
+- Use the generated `Database` with `SupabaseClient<Database>` and explicit `.overrideTypes<..., { merge: false }>()` where introspection cannot express RPC guarantees. Keep these persistence result types separate from public response interfaces. Regenerate persistence types from the migrated local database after schema/function result changes; see `README.md` for the command.
 - Use the spec's plural routes: `/sites`, `/planting-areas`, `/species`, `/planting-events`. Locations and event-species rows are nested writes, not independent resources.
 - Return plain arrays for lists, direct detail objects for GET/POST/PUT, 201 with a `Location` header on create, and an empty 204 on delete. PUT accepts the complete editable request, not a partial patch or read response.
-- Lists accept no query parameters and return every visible matching record in the specified stable order. Details include complete scoped related arrays. Do not add envelopes, filters, pagination or implicit cutoffs.
-- Reject unknown fields, missing required fields, invalid types and unexpected query parameters. Validate path IDs as well as bodies. Reject caller-supplied audit fields and actor/viewer scope.
-- Preserve snake_case JSON, `""` for empty ordinary text and null for missing relationships. IDs are opaque, caller-supplied 16-character strings; validate as specified without trimming or normalizing them. Auth UUIDs are separate identity keys.
-- Validate actual calendar dates without timezone conversion, finite non-negative safe integer quantities, and longitude-first Point coordinates. Reject Polygon input in this release. Image URLs are HTTPS or `""`; do not fetch them.
+- Lists return every active record in the specified stable order. Query parameters currently have no effect. Details include complete related arrays. Do not add envelopes, filters, pagination or implicit cutoffs.
+- Preserve snake_case JSON, `""` for empty ordinary text and null for missing relationships. IDs are opaque 16-character strings; do not trim or normalize them. Auth UUIDs are separate identity keys.
+- Keep calendar dates distinct from timestamps, coordinates longitude-first, and quantity sums within the safe integer range before JSON conversion. Database constraints enforce stored data integrity. Do not fetch image URLs.
 - Map expected failures to the spec's status codes and `ErrorResponse`, including sanitized `internal_error` responses. Keep CORS headers on errors, handle OPTIONS before auth, and use `Cache-Control: private, no-store` for viewer-dependent responses. Allow only configured origins.
-- Log safe request identifiers and error context without tokens, secrets or full private request/response bodies. Never expose SQL internals or stack traces in API responses.
+
+## Logging and troubleshooting
+
+- Verbose structured logging is the default development pattern. Use `createRequestLog` from `logging.ts`, store it in Hono context and pass it explicitly to resource functions. Do not add a logging framework or global mutable request state.
+- Trace request start/completion, JSON parsing, database context setup, operation start/completion, list batches and failures. Use descriptive events such as `species.create.started`, `species.list.batch.completed` and `database.failed`. Include row/event counts and elapsed milliseconds where useful.
+- Every line carries a timestamp, level, event, method, path and the server-generated request ID returned as `X-Request-ID`. Include safe species IDs, trusted audit actor IDs and database error codes. Use `warn` for expected HTTP failures and `error` for database failures or unexpected server failures.
+- Never log credentials, headers, query strings, request/response bodies or raw database messages/details that may contain supplied values. Never expose SQL internals or stack traces in API responses. Logging must not inspect request fields in ways that introduce validation or change request behavior.
+- Follow a request by its ID and the last stage started before failure. A completed deactivate operation means the idempotent RPC succeeded; it does not imply a newly written timestamp. View live logs with `supabase functions serve api`; the bulk test runner deliberately drains function logs without printing them.
 
 ## Authentication and access
 
-- Supabase owns Google OAuth and sessions. Verify supplied access tokens server-side using supported Supabase verification; decoding a JWT or trusting client metadata is insufficient.
-- With `verify_jwt = false`, every domain route must still use shared authentication logic: anonymous GETs use public scope; anonymous writes return 401; invalid supplied tokens return 401; valid but unapproved/inactive identities return 403. Never silently downgrade a rejected token to anonymous access.
-- Resolve the active app user on every authenticated request. Require trusted Google identity and verified email. First binding uses the spec's canonical-email match and atomic UUID assignment; never auto-create, reactivate or silently rebind an app user.
-- Only the API and operator tooling access domain tables/RPCs. Enable RLS on all seven tables and explicitly revoke browser-role and inherited PUBLIC table/function access, including default privileges. Test grants as well as RLS.
+- When authentication is implemented, Supabase owns Google OAuth and sessions. Verify access tokens server-side using supported Supabase verification; decoding a JWT or trusting client metadata is insufficient.
+- Future authenticated implementation with `verify_jwt = false` must use shared authentication logic: anonymous GETs use public scope; anonymous writes return 401; invalid supplied tokens return 401; valid but unapproved/inactive identities return 403. Never silently downgrade a rejected token to anonymous access.
+- Once authentication is implemented, resolve the active app user on every authenticated request. Require trusted Google identity and verified email. First binding uses the spec's canonical-email match and atomic UUID assignment; never auto-create, reactivate or silently rebind an app user.
+- Only the API and operator tooling access domain tables/RPCs. Enable RLS on all seven tables and explicitly revoke browser-role and inherited PUBLIC table/function access, including default privileges. Preserve explicit grants as well as RLS.
 - Keep the privileged database client separate from caller auth/session state. It bypasses RLS, so every read must explicitly enforce public/editor visibility. Derive actor IDs and viewer scope in trusted server code.
 - Construct response DTOs explicitly. Do not serialize database rows wholesale. Apply visibility to nested references, geometry, arrays and aggregates as well as the top-level resource; never send private fields for the client to hide.
 
 ## Postgres and business rules
 
-- Use versioned SQL migrations for tables, constraints, indexes, privileges and functions. Make new migrations for changes to an applied schema; do not rely on dashboard-only SQL. Keep migration execution separate from request handling.
-- Use Supabase `.rpc()` database functions for atomic multi-row operations. Separate SDK writes do not share a transaction. Parameterize values and enforce integrity in Postgres as well as at the API boundary.
-- Inside write transactions, recheck the active actor and referenced records, lock affected rows in a consistent order, and serialize saves to the same parent. Return the full saved detail from that operation. Do not add optimistic versioning to the specified last-committed-save behavior.
+- Use versioned SQL migrations for tables, constraints, indexes, privileges and functions. Make new migrations for changes to an applied schema; do not rely on dashboard-only SQL. Combine unreleased migrations only when James directs it, preserving the final schema and reconciling local history where needed without resetting data. Keep migration execution separate from request handling.
+- Prefer ordinary typed Supabase queries for straightforward reads and writes. Use small `.rpc()` database functions when transactions, locking or aggregate queries require them. Separate SDK writes do not share a transaction. Parameterize values and keep constraints and transactional integrity in Postgres.
+- Keep database functions focused on fetching rows, calculating aggregates and performing atomic writes. Return typed rows or small result sets for TypeScript to turn into public DTOs. Avoid SQL helpers whose only purpose is building nested API JSON; JSONB remains appropriate for stored JSON data such as geometry.
+- The current species pattern uses ordinary batched table queries for lists and four RPCs for detail/create/update/deactivate. Detail RPCs return the species row, aggregates and a typed array of flat event rows in one result; TypeScript builds nested summaries. Keep saved detail data in the write transaction rather than fetching it again after commit.
+- Keep RPCs security-invoker, qualify relations, set an empty search path and grant execution explicitly to `service_role` only. Runtime table grants remain SELECT/INSERT/UPDATE; preserve RLS and closed default privileges.
+- Write Postgres functions as straightforward steps with descriptive names. Use joins, subqueries and CTEs only where they clarify the query or preserve correctness; avoid unnecessary custom types, nested queries, dynamic SQL and helper-function chains. Keep required locking, audit checks and transaction guarantees explicit. Choose the simplest approach that preserves the required behavior.
+- Inside write transactions, recheck the active actor and referenced records, lock affected rows in a consistent order, and serialize saves to the same parent. Return the saved rows and related data needed to assemble the response in TypeScript, preserving a consistent view of the saved operation. Do not add optimistic versioning to the specified last-committed-save behavior.
 - Save owner/location changes and event/count desired sets atomically. Preserve existing nested IDs and creation fields; deactivate omitted count rows. Enforce location ownership across both sites and areas and prevent count rows from moving between events. Follow spec section 11 for nested-row reactivation and inactive-reference exceptions.
 - Set audit actors from the app user's domain ID and timestamps in trusted server/database code. A nested geometry/count change must update its parent's audit fields too. Do not add a separate audit-event system.
 - DELETE means soft deactivation. Preserve historical rows and references, and preserve the original timestamp on repeated accessible deletes. Site deactivation hides children without cascading deactivation to their stored rows.
 - Keep historical inactive species/area references editable as specified while rejecting new inactive links. Inactive species quantities still contribute to actual totals.
 - Calculate aggregates independently of joins that could multiply rows. Use a consistent read snapshot for a detail's histories and totals. Check sums before converting them to JavaScript numbers; unsafe totals are conflicts, never rounded values.
 - Public events depend on their site's visibility, not their area's. Hide private/inactive area identity and geometry and apply the site-location fallback. Combine hidden species quantities into the specified null group without leaking original line IDs or catalogue identities.
-- Guarantee complete reads despite Supabase's Data API row limit. Prefer read RPCs that assemble one JSON array/object in SQL; a plain `.select()` is not evidence of completeness.
+- Guarantee complete reads despite Supabase's Data API row limit. Species lists use ordered internal batches, advance by the actual returned count and continue until an empty batch; do not stop simply because a batch is smaller than requested. Use a focused read RPC where a consistent snapshot is required. A plain `.select()` is not evidence of completeness, and internal batching is not public pagination.
 
-## Tests and checks
+## Development checks
 
-- Test observable behavior and meaningful failure cases. Use focused Deno tests for validation, visibility/serialization and HTTP behavior. Avoid tests that merely repeat implementation details or mock SDK query chains.
-- Use real non-production Supabase/Postgres integration checks for constraints, grants, RPC rollback, identity-binding races and concurrent saves. Mocks cannot prove those invariants. Follow the acceptance matrix in spec section 16.
-- Include public/private/inactive fixtures, historical references, hidden-species totals, zero/empty events and more than 1,000 records. Check that browser credentials cannot bypass the API through tables or RPCs.
-- Keep unit tests deterministic and independent of live credentials. Make integration targets explicit and keep fixtures out of production. Never run a destructive database reset against a linked production project.
-- Run relevant formatting, lint, type and test checks for executable changes. From `server/`, the API checks are:
+- Maintain species end-to-end tests in `tests/species_test.ts` using Deno's built-in runner and the real local Supabase database and Edge Runtime. Create every test fixture through the species HTTP API; do not seed related records through SQL or the Data API. Non-zero event history/totals coverage waits for those resource endpoints. Avoid mocks and additional test frameworks. Other test suites remain deferred unless James requests them.
+- Run `deno task --config supabase/functions/api/deno.json test:species` from `server/` for the complete local species suite. The runner starts Supabase, applies pending migrations and serves the API. Never reset the working database; soft-delete only records created by the suite. Keep local Supabase credentials out of logs.
+- Keep tests explicit: send HTTP requests and assert status, headers and complete response bodies. Cover CRUD, ignored ID/audit inputs, constraint rollback, malformed JSON, unknown/inactive records, unpublished records, stable ordering and lists exceeding 1,000 records. Use unique run names, track created IDs, bound concurrency and clean up in `finally`. Soft-deleted test rows remain as local history; leave unrelated data untouched.
+- Use formatting, lint and TypeScript checks appropriate to the change. From `server/`:
 
   ```sh
-  deno fmt --check supabase/functions/api
-  deno lint supabase/functions/api
-  deno check --config supabase/functions/api/deno.json supabase/functions/api/index.ts
+  deno fmt --check supabase/functions tests scripts ../shared ../planning/db-schema.ts
+  deno lint --config supabase/functions/api/deno.json supabase/functions tests scripts ../shared ../planning/db-schema.ts
+  deno task --config supabase/functions/api/deno.json check
   ```
 
-- Add documented Deno test and database integration commands alongside their suites when implemented; do not imply they already exist. Check scripts/shared code when affected. Documentation-only changes need content review, not an application build.
-- Report what changed, which checks ran and any material gaps or existing failures. Do not claim database, hosted-runtime or OAuth behavior is verified by unit tests alone.
+- The `check` task includes the application, HTTP tests and test runner. Run the species suite after endpoint behavior changes; do not add tests that merely mirror implementation details or repeat expensive checks without a reason.
+- Database lint is appropriate when changing SQL. Never reset working data to check a change.
+- Documentation-only changes need content review rather than an application build.
+- Report which checks actually ran and any failures or material gaps. Do not claim runtime or database behavior was tested when only static checks ran.
+- The current local Kong plugin handles preflight with 200 instead of Hono's 204 and rewrites Allow-Origin to `*`. Keep this platform difference documented rather than changing generated gateway configuration. Local gateway checks do not establish hosted CORS behavior.
 
 ## Operator scripts
 

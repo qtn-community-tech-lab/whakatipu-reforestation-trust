@@ -28,11 +28,11 @@ Nested collections in detail responses are complete arrays scoped to that parent
 
 Species lists include aliases for client-side name search. Event lists include deduplicated `species_ids` with positive quantities for client-side species filtering; include only catalogue references visible to the caller. Site species filtering can combine these event rows by their Site ID. Hidden species quantities still contribute to totals, but their IDs never appear in public lists.
 
-Primary resource contracts use `*CreateRequest`, `*UpdateRequest`, `*ListResponse` and `*Response`. Create requests extend update requests to add the caller-supplied ID. Shared contracts use explicit interfaces and `extends`, never mapped omission helpers. Nested update objects include their IDs for both new and retained rows.
+Primary resource contracts use `*CreateRequest`, `*UpdateRequest`, `*ListResponse` and `*Response`. Site and species create requests alias their update requests because the server generates IDs. Area/event target create requests still extend updates with a supplied ID. Site location input contains geometry only; other nested write contracts retain their specified IDs. Shared contracts do not use mapped omission helpers.
 
 ## Write endpoints
 
-All writes require a valid bearer token for an active authorised WRT user. POST supplies caller-generated IDs; no endpoint generates IDs. The server validates every ID is exactly 16 characters at the request boundary. PUT replaces the full editable form, not the read DTO or server-managed fields.
+All writes require a valid bearer token for an active authorised WRT user. Site and species POST generate their IDs on the server, including any new site location. Area/event target POST bodies still supply IDs. The server validates every ID is exactly 16 characters at the request boundary. PUT replaces the full editable form, not the read DTO or server-managed fields.
 
 | Endpoint                          | Request                      | Success response            |
 | --------------------------------- | ---------------------------- | --------------------------- |
@@ -50,8 +50,8 @@ All writes require a valid bearer token for an active authorised WRT user. POST 
 | `DELETE /api/planting-events/:id` | No body                      | 204, no body                |
 
 - POST returns `Location` header for the new resource. ID collisions are 409, never silently repurposed records.
-- Parent, Location and event-species writes are atomic. Reuse a Location ID for geometry changes; replacement/detachment soft-deactivates the old Location. Reject using a Location ID owned elsewhere.
-- An inactive detached Location ID is not reusable in this first API; return 409 and require a new supplied ID. On site/area DELETE, deactivate its own attached Location in the same transaction and retain the owner link. Do not cascade deactivation to child areas/events. Repeated DELETE leaves both owner and Location inactive without rewriting their original deactivation timestamps.
+- Parent, Location and event-species writes are atomic. Site location bodies contain `{ geometry }` or null: the server creates an ID when unlocated, keeps the owned ID on geometry edits, and detaches/deactivates on null. Area target bodies retain supplied location IDs and their ownership checks.
+- An inactive detached Location ID is not reusable. Sites generate a fresh ID when adding geometry again; area target requests must supply a fresh ID. On site/area DELETE, deactivate its own attached Location in the same transaction and retain the owner link. Do not cascade deactivation to child areas/events. Repeated DELETE leaves both owner and Location inactive without rewriting their original deactivation timestamps.
 - Event species input is the complete desired active set. Preserve each line's ID on edit; new lines need externally supplied IDs. Omitted lines are soft-deactivated. Reject duplicate species/line IDs and any line ID owned by another event. An empty set explicitly removes all lines; missing the required `species` property is a validation error, not an empty set. If an inactive line ID is explicitly resubmitted for the same event, reactivate it after validation; never create a second row with that ID. An unchanged historical link to a deactivated species may be retained, but adding or changing a link to inactive species is rejected.
 - Editing lines/geometry also updates their parent resource's audit fields, so child changes are not invisible as parent edits. Authenticated actor/audit timestamps are server-managed; public/user IDs from response data are not trusted as write authority.
 - Event area must belong to its selected site. Area site ownership is immutable in this minimal API. Event site corrections remain possible if the selected area is also consistent.

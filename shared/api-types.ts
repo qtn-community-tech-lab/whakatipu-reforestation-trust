@@ -1,14 +1,22 @@
-/** REST contracts: four interfaces per resource; list endpoints return arrays. */
-import type {
-  Id,
-  Timestamp,
-  CalendarDate,
+/** Shared HTTP contracts and primitives. Database rows are not API responses. */
+export type Id = string;
+/** UTC ISO 8601 instant. */
+export type Timestamp = string;
+/** Calendar date, YYYY-MM-DD. */
+export type CalendarDate = string;
+/** GeoJSON longitude first, latitude second. */
+export type Position = [longitude: number, latitude: number];
+export type LinearRing = [
   Position,
-  Geometry,
-  PlantingEventType,
-} from "./db-schema";
-
-export type { Id, Timestamp, CalendarDate } from "./db-schema";
+  Position,
+  Position,
+  Position,
+  ...Position[],
+];
+export type Geometry =
+  | { type: "Point"; coordinates: Position }
+  | { type: "Polygon"; coordinates: [LinearRing, ...LinearRing[]] };
+export type PlantingEventType = "establishment" | "infill" | "replacement";
 
 // Sites
 
@@ -44,14 +52,13 @@ export interface SiteResponse extends SiteListResponse {
 export interface SiteUpdateRequest {
   name: string;
   description: string;
-  /** Supply an ID for a new location; retain it on edits. Null removes it. */
-  location: { id: Id; geometry: Geometry } | null;
+  /** Server creates the location ID or retains the existing one. Null removes it. */
+  location: { geometry: Geometry } | null;
   is_public: boolean;
 }
 
-export interface SiteCreateRequest extends SiteUpdateRequest {
-  id: Id;
-}
+/** POST generates the site and any new location IDs on the server. */
+export type SiteCreateRequest = SiteUpdateRequest;
 
 // Planting areas
 
@@ -126,9 +133,8 @@ export interface SpeciesUpdateRequest {
   is_public: boolean;
 }
 
-export interface SpeciesCreateRequest extends SpeciesUpdateRequest {
-  id: Id;
-}
+/** POST generates the species ID on the server. */
+export type SpeciesCreateRequest = SpeciesUpdateRequest;
 
 // Planting events
 
@@ -157,17 +163,17 @@ export interface PlantingEventResponse extends PlantingEventListResponse {
   /** Editors get every actual line. Public hidden quantities form one null group. */
   species: (
     | {
-        /** Event-species row ID, retained when editing. */
+      /** Event-species row ID, retained when editing. */
+      id: Id;
+      species: {
         id: Id;
-        species: {
-          id: Id;
-          scientific_name: string;
-          common_name: string;
-          image_url: string;
-          is_active: boolean;
-        };
-        quantity: number;
-      }
+        scientific_name: string;
+        common_name: string;
+        image_url: string;
+        is_active: boolean;
+      };
+      quantity: number;
+    }
     | { id: null; species: null; quantity: number }
   )[];
 }

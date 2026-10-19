@@ -1,16 +1,25 @@
 /**
  * Simplified WRT persisted rows; planning is deferred from this draft.
  * These are not API request DTOs or executable migrations.
- * See database-tables.md for the required database/service constraints.
+ * See spec.md and the versioned Supabase migrations for persistence rules.
  */
 
-/** Server-supplied ID, exactly 16 characters. No ID generation or default. */
-export type Id = string;
-
-/** UTC ISO 8601 instant; map to a timezone-aware database timestamp. */
-export type Timestamp = string;
-/** Calendar date, YYYY-MM-DD. No invented time or timezone. */
-export type CalendarDate = string;
+import type {
+  CalendarDate,
+  Geometry,
+  Id,
+  PlantingEventType,
+  Timestamp,
+} from "../shared/api-types.ts";
+export type {
+  CalendarDate,
+  Geometry,
+  Id,
+  LinearRing,
+  PlantingEventType,
+  Position,
+  Timestamp,
+} from "../shared/api-types.ts";
 
 /** Shared by every editable table, including users and species-count rows. */
 export interface EditableRow {
@@ -27,9 +36,11 @@ export interface EditableRow {
 }
 
 export interface User extends EditableRow {
-  /** Canonicalised email used by the passwordless sign-in flow. */
+  /** Canonical approved email used for initial Google identity binding. */
   email: string;
   display_name: string;
+  /** Supabase Auth identity; separate from the domain ID. */
+  auth_user_id: string | null;
 }
 
 export interface Site extends EditableRow {
@@ -50,21 +61,6 @@ export interface PlantingArea extends EditableRow {
   is_public: boolean;
 }
 
-/** GeoJSON order: longitude first, latitude second; coordinates in degrees. */
-export type Position = [longitude: number, latitude: number];
-/** Closed ring: minimum four positions, with first and last equal. */
-export type LinearRing = [
-  Position,
-  Position,
-  Position,
-  Position,
-  ...Position[],
-];
-
-export type Geometry =
-  | { type: "Point"; coordinates: Position }
-  | { type: "Polygon"; coordinates: [LinearRing, ...LinearRing[]] };
-
 export interface Location extends EditableRow {
   /** One geometry value, never separate competing pin/polygon fields. */
   geometry: Geometry;
@@ -73,14 +69,12 @@ export interface Location extends EditableRow {
 export interface Species extends EditableRow {
   scientific_name: string;
   common_name: string;
-  /** Native text array or JSON array, depending on the eventual database. */
+  /** Native Postgres text array. */
   aliases: string[];
   description: string;
   image_url: string;
   is_public: boolean;
 }
-
-export type PlantingEventType = "establishment" | "infill" | "replacement";
 
 export interface PlantingEvent extends EditableRow {
   /** FK sites.id; all events have a site, including historical imports. */
