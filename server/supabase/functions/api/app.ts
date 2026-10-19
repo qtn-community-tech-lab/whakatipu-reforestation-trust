@@ -4,6 +4,8 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type {
   ErrorResponse,
+  SiteCreateRequest,
+  SiteUpdateRequest,
   SpeciesCreateRequest,
   SpeciesUpdateRequest,
 } from "@wrt/api-types";
@@ -19,6 +21,14 @@ import {
   listSpecies,
   updateSpecies,
 } from "./species.ts";
+
+import {
+  createSite,
+  deactivateSite,
+  getSite,
+  listSites,
+  updateSite,
+} from "./sites.ts";
 
 type AppEnv = {
   Variables: {
@@ -145,6 +155,46 @@ export function createApp() {
     throw new HttpError(405, "validation_error", "Method not allowed.");
   });
   app.all("/species/:id", (c) => {
+    c.header("Allow", "GET, HEAD, PUT, DELETE, OPTIONS");
+    throw new HttpError(405, "validation_error", "Method not allowed.");
+  });
+  app.get(
+    "/sites",
+    async (c) => c.json(await listSites(c.get("db"), c.get("log"))),
+  );
+  app.get(
+    "/sites/:id",
+    async (c) =>
+      c.json(await getSite(c.get("db"), c.req.param("id"), c.get("log"))),
+  );
+  app.post("/sites", async (c) => {
+    const log = c.get("log");
+    log("sites.create.body_parsing");
+    const body = await readJson<SiteCreateRequest>(c.req.raw);
+    log("sites.create.body_parsed");
+    const site = await createSite(c.get("db"), body, log);
+    c.header("Location", `/functions/v1/api/sites/${site.id}`);
+    return c.json(site, 201);
+  });
+  app.put("/sites/:id", async (c) => {
+    const log = c.get("log");
+    log("sites.update.body_parsing");
+    const body = await readJson<SiteUpdateRequest>(c.req.raw);
+    log("sites.update.body_parsed");
+    return c.json(
+      await updateSite(c.get("db"), c.req.param("id"), body, log),
+    );
+  });
+  app.delete("/sites/:id", async (c) => {
+    await deactivateSite(c.get("db"), c.req.param("id"), c.get("log"));
+    return c.body(null, 204);
+  });
+
+  app.all("/sites", (c) => {
+    c.header("Allow", "GET, HEAD, POST, OPTIONS");
+    throw new HttpError(405, "validation_error", "Method not allowed.");
+  });
+  app.all("/sites/:id", (c) => {
     c.header("Allow", "GET, HEAD, PUT, DELETE, OPTIONS");
     throw new HttpError(405, "validation_error", "Method not allowed.");
   });

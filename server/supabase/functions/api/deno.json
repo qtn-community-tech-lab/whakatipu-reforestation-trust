@@ -10,7 +10,9 @@
     "@wrt/api-types": "../../../../shared/api-types.ts"
   },
   "tasks": {
-    "check": "deno check index.ts ../../../tests/species_test.ts ../../../scripts/test-species.ts",
-    "test:species": "deno run --allow-run=supabase,deno ../../../scripts/test-species.ts"
+    "check": "deno check index.ts ../../../tests/*_test.ts ../../../scripts/test-api.ts",
+    "test": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts",
+    "test:species": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts tests/species_test.ts",
+    "test:sites": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts tests/sites_test.ts"
   }
 }

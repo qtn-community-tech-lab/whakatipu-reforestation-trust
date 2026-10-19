@@ -25,7 +25,7 @@ export function throwDatabaseError(
     duration_ms: Math.round(performance.now() - started),
   }, "error");
   if (error.code === "PT404") {
-    throw new HttpError(404, "not_found", "Species not found.");
+    throw new HttpError(404, "not_found", "Record not found.");
   }
   if (["PT409", "23505", "23503"].includes(error.code)) {
     throw new HttpError(

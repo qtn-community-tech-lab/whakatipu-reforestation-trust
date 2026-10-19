@@ -447,6 +447,56 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      "site_create": {
+        Args: {
+          "p_actor_id": string;
+          "p_description": string;
+          "p_geometry": Json;
+          "p_id": string;
+          "p_is_public": boolean;
+          "p_location_id": string;
+          "p_name": string;
+        };
+        Returns: Database["public"]["CompositeTypes"]["site_detail_rows"][];
+        SetofOptions: {
+          from: "*";
+          to: "site_detail_rows";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
+      "site_deactivate": {
+        Args: { "p_actor_id": string; "p_id": string };
+        Returns: undefined;
+      };
+      "site_get": {
+        Args: { "p_id": string };
+        Returns: Database["public"]["CompositeTypes"]["site_detail_rows"][];
+        SetofOptions: {
+          from: "*";
+          to: "site_detail_rows";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
+      "site_update": {
+        Args: {
+          "p_actor_id": string;
+          "p_description": string;
+          "p_geometry": Json;
+          "p_id": string;
+          "p_is_public": boolean;
+          "p_location_id": string;
+          "p_name": string;
+        };
+        Returns: Database["public"]["CompositeTypes"]["site_detail_rows"][];
+        SetofOptions: {
+          from: "*";
+          to: "site_detail_rows";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
       "species_create": {
         Args: {
           "p_actor_id": string;
@@ -504,6 +554,31 @@ export type Database = {
       [_ in never]: never;
     };
     CompositeTypes: {
+      "site_area_row": {
+        "id": string | null;
+        "name": string | null;
+        "is_public": boolean | null;
+        "geometry": Json | null;
+      };
+      "site_detail_rows": {
+        "site": Database["public"]["Tables"]["sites"]["Row"] | null;
+        "location": Database["public"]["Tables"]["locations"]["Row"] | null;
+        "total_plants": number | null;
+        "planting_event_count": number | null;
+        "species_totals":
+          | (Database["public"]["CompositeTypes"]["site_species_total_row"])[]
+          | null;
+        "areas":
+          | (Database["public"]["CompositeTypes"]["site_area_row"])[]
+          | null;
+        "events":
+          | (Database["public"]["CompositeTypes"]["species_event_row"])[]
+          | null;
+      };
+      "site_species_total_row": {
+        "species": Database["public"]["Tables"]["species"]["Row"] | null;
+        "quantity": number | null;
+      };
       "species_detail_rows": {
         "species": Database["public"]["Tables"]["species"]["Row"] | null;
         "total_plants": number | null;

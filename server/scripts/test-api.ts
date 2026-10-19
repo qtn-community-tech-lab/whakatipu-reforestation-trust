@@ -64,7 +64,7 @@ try {
       "--config",
       "supabase/functions/api/deno.json",
       "--allow-net=127.0.0.1:54321",
-      "tests/species_test.ts",
+      ...Deno.args.length ? Deno.args : ["tests/"],
     ],
     cwd: serverDirectory,
     stdout: "inherit",

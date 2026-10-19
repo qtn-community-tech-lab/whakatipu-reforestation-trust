@@ -19,17 +19,17 @@ sources:
 
 This is a self-contained implementation handoff. The database structure, HTTP behavior, TypeScript contracts, business rules and acceptance requirements are included below. Other files are provenance, not required reading. No backend implementation, deployment, client sign-off or delivery deadline is implied by this document.
 
-## Current development increment: species API
+## Current development increment: species and site APIs
 
-The following agreed development choices take precedence over the later target behavior in this document for the implemented species endpoints:
+The following agreed development choices take precedence over the later target behavior in this document for the implemented species and site endpoints:
 
 - Run locally in the Supabase `api` Edge Function, with Deno, Hono and the official Supabase server SDK. Hosted deployment is later work.
-- Species HTTP end-to-end tests are requested and maintained against local Supabase using Deno's built-in runner. Create all fixtures through the species endpoints and clean up by soft deletion; do not reset local data. Non-zero histories/totals tests wait for related resource endpoints. Other suites and the wider acceptance matrix below remain future guidance unless requested.
-- Authentication is deferred. Requests need no bearer token or API key at the handler. Every request has editor scope: all active species and otherwise active related records are visible regardless of publication flags.
+- Species and site HTTP end-to-end tests are maintained against local Supabase using Deno's built-in runner. Create all fixtures through the implemented HTTP endpoints and clean up by soft deletion; do not reset local data. Non-zero histories/totals tests wait for related resource endpoints. Other suites and the wider acceptance matrix below remain future guidance unless requested.
+- Authentication is deferred. Requests need no bearer token or API key at the handler. Every request has editor scope: all active species, sites and otherwise active related records are visible regardless of publication flags.
 - Use the seeded app user `usr_000000000001` for every write's audit identity. This is a local development identity, not a Supabase Auth account. RPCs still check that the actor is active.
-- The server generates site, new site-location and species IDs. Site and species create requests alias their corresponding update requests and omit IDs. Site location input is `{ geometry }` or null; PUT retains an existing location ID, creates one if needed, or detaches/deactivates on null. Site endpoints are not implemented yet. Area and event create contracts remain the future target described below.
+- The server generates site, new site-location and species IDs. Site and species create requests alias their corresponding update requests and omit IDs. Site location input is `{ geometry }` or null; PUT retains an existing location ID, creates one if needed, or detaches/deactivates on null. Area and event create contracts remain the future target described below.
 - Assume requests match the TypeScript contracts. Do not add Zod, replacement request validators, path-ID validators or response-schema validators. JSON parsing failures return 400; existing database constraints remain enforced. Extra request properties are ignored, never forwarded as audit or ID values. Query parameters have no effect and do not add filtering.
-- Retain the full species detail contract, including real totals and complete related event summaries. Preserve soft deactivation, audit history, safe aggregate limits and the server-only table/RPC access boundary.
+- Retain the full species and site detail contracts, including real totals and complete related summaries. Site details include owned geometry, per-species quantities, active planting areas and event history. Preserve soft deactivation, audit history, safe aggregate limits and the server-only table/RPC access boundary.
 - Keep Postgres functions lightweight: use typed queries for catalogue lists and small RPCs for consistent detail reads, aggregates and transactional writes. Assemble public response objects in TypeScript, not SQL JSON builders. This takes precedence over older SQL response-assembly recommendations below.
 
 Canonical contracts are in [the monorepo shared module](../shared/api-types.ts), imported by Deno through the function's `@wrt/api-types` alias using `import type`. [The server runbook](../server/README.md) describes the current implementation, checks and local gateway behavior. The wider acceptance matrix below remains the target for resources and authentication not yet implemented.

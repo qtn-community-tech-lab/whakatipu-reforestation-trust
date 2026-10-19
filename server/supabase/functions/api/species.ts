@@ -10,6 +10,7 @@ import type {
   SpeciesDetailRows,
   SpeciesRow,
 } from "./database.types.ts";
+import { plantingEventListResponse } from "./responses.ts";
 import { generateUniqueID, IdPrefixes } from "../_shared/ids.ts";
 import { DEVELOPMENT_ACTOR_ID } from "./config.ts";
 import { HttpError, throwDatabaseError } from "./http.ts";
@@ -37,23 +38,7 @@ function speciesResponse(result: SpeciesDetailRows): SpeciesResponse {
       planting_event_count: result.planting_event_count,
       total_plants: result.total_plants,
     },
-    planting_events: events.map((event) => ({
-      id: event.id,
-      site: {
-        id: event.site_id,
-        name: event.site_name,
-        is_public: event.site_is_public,
-      },
-      planting_area:
-        event.planting_area_id === null || event.planting_area_name === null
-          ? null
-          : { id: event.planting_area_id, name: event.planting_area_name },
-      planting_date: event.planting_date,
-      event_type: event.event_type,
-      species_ids: event.species_ids,
-      total_plants: event.total_plants,
-      is_public: event.is_public,
-    })),
+    planting_events: events.map(plantingEventListResponse),
   };
 }
 
