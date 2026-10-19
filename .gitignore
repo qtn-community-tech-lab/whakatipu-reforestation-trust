@@ -1,9 +1,53 @@
+# Dependencies (root and workspace packages)
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+coverage/
+.next/
+.nuxt/
+.output/
+.vercel/
+.netlify/
+
+# TypeScript and tooling caches
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+.turbo/
+.cache/
+.vite/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+
+# OS and editor files
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Existing project-specific generated files
 .architect
 bootstrap.css
 bootstrap.js
 bootstrap.json
 bootstrap.jsonp
-build/
 classic.json
 classic.jsonp
 ext/
