@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "strict": true
+  },
+  "imports": {
+    "@supabase/server": "npm:@supabase/server@1.9.2",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.118.0",
+    "hono": "npm:hono@4.13.13",
+    "hono/cors": "npm:hono@4.13.13/cors",
+    "@wrt/api-types": "../../../../shared/api-types.ts"
+  },
+  "tasks": {
+    "check": "deno check index.ts ../../../tests/*_test.ts ../../../scripts/test-api.ts",
+    "test": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts",
+    "test:species": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts tests/species_test.ts",
+    "test:sites": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts tests/sites_test.ts",
+    "test:planting-areas": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts tests/planting-areas_test.ts",
+    "test:planting-events": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts tests/planting-events_test.ts",
+    "test:workflows": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts tests/workflows_test.ts"
+  }
+}
