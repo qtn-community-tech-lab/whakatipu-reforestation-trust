@@ -1,4 +1,4 @@
-/** Proposed REST contracts over the current seven-table WRT schema. */
+/** REST contracts: four interfaces per resource; list endpoints return arrays. */
 import type {
   Id,
   Timestamp,
@@ -7,171 +7,45 @@ import type {
   Geometry,
   PlantingEventType,
 } from "./db-schema";
+
 export type { Id, Timestamp, CalendarDate } from "./db-schema";
 
-export interface SiteReferenceResponse {
+// Sites
+
+export interface SiteListResponse {
   id: Id;
   name: string;
-  /** Stored publication flag, useful when showing a child's publication state. */
   is_public: boolean;
+  /** Point or representative polygon point, without the full geometry. */
+  position: Position | null;
 }
 
-export interface PlantingAreaReferenceResponse {
-  id: Id;
-  name: string;
-}
-
-export interface SpeciesReferenceResponse {
-  id: Id;
-  scientific_name: string;
-  common_name: string;
-  image_url: string;
-}
-
-export interface HistoricalPlantingAreaResponse extends PlantingAreaReferenceResponse {
-  is_active: boolean;
-}
-
-export interface HistoricalSpeciesResponse extends SpeciesReferenceResponse {
-  is_active: boolean;
-}
-
-/** Location has no independent publication or REST lifecycle. */
-export interface LocationResponse {
-  id: Id;
-  geometry: Geometry;
-}
-
-/** Safe detail metadata, not raw database audit/user columns. */
-export interface ResourceMetadataResponse {
-  is_public: boolean;
+export interface SiteResponse extends SiteListResponse {
+  description: string;
   created_at: Timestamp;
   updated_at: Timestamp;
-}
-
-export interface PlantingTotalsResponse {
-  planting_event_count: number;
-  total_plants: number;
-}
-
-export interface SpeciesTotalResponse {
-  /** Null for anonymous viewers when this catalogue record is unpublished/inactive. */
-  species: SpeciesReferenceResponse | null;
-  quantity: number;
-}
-
-// List items: enough for a row, card, dropdown or map pin, not an edit form.
-
-export interface SiteListResponse extends SiteReferenceResponse {
-  /** Point location or derived representative polygon point; no polygon payload. */
-  position: Position | null;
-}
-
-export interface PlantingAreaListResponse extends PlantingAreaReferenceResponse {
-  site: SiteReferenceResponse;
-  position: Position | null;
-  is_public: boolean;
-}
-
-export interface SpeciesListResponse extends SpeciesReferenceResponse {
-  /** Needed for client-side name/alias search without loading every detail. */
-  aliases: string[];
-  is_public: boolean;
-}
-
-export interface PlantingEventListResponse {
-  id: Id;
-  site: SiteReferenceResponse;
-  /** Null if unassigned or not visible to the viewer. */
-  planting_area: PlantingAreaReferenceResponse | null;
-  planting_date: CalendarDate;
-  event_type: PlantingEventType;
-  /** Positive-quantity species visible to the caller, for client-side filtering. */
-  species_ids: Id[];
-  total_plants: number;
-  is_public: boolean;
-}
-
-// Detail payloads: joined page-ready data, without recursive full resources.
-
-export interface SiteResponse
-  extends SiteReferenceResponse, ResourceMetadataResponse {
-  description: string;
-  location: LocationResponse | null;
-  totals: PlantingTotalsResponse;
-  /** Complete rollup across visible events, including every event below. */
-  species_totals: SpeciesTotalResponse[];
-  /** Complete related array, restricted to records visible to the caller. */
+  location: { id: Id; geometry: Geometry } | null;
+  totals: { planting_event_count: number; total_plants: number };
+  species_totals: {
+    /** Null when the catalogue reference is not visible to the caller. */
+    species: {
+      id: Id;
+      scientific_name: string;
+      common_name: string;
+      image_url: string;
+    } | null;
+    quantity: number;
+  }[];
+  /** Complete related arrays, restricted to records visible to the caller. */
   planting_areas: PlantingAreaListResponse[];
-  /** Complete related array, restricted to records visible to the caller. */
   planting_events: PlantingEventListResponse[];
-}
-
-export interface PlantingAreaResponse
-  extends PlantingAreaReferenceResponse, ResourceMetadataResponse {
-  site: SiteReferenceResponse;
-  description: string;
-  location: LocationResponse | null;
-  totals: PlantingTotalsResponse;
-  species_totals: SpeciesTotalResponse[];
-  /** Complete related array, restricted to records visible to the caller. */
-  planting_events: PlantingEventListResponse[];
-}
-
-export interface SpeciesResponse
-  extends SpeciesListResponse, ResourceMetadataResponse {
-  description: string;
-  /** total_plants counts this species only, not all plants in matching events. */
-  totals: PlantingTotalsResponse;
-  /** All visible active events with a positive quantity of this species. */
-  planting_events: PlantingEventListResponse[];
-}
-
-export interface PlantingEventSpeciesLineResponse {
-  /** The join row's ID, not the species ID. Needed when editing this event. */
-  id: Id;
-  /** Editors receive the reference even for retained inactive historical species. */
-  species: HistoricalSpeciesResponse;
-  quantity: number;
-}
-
-/** One anonymous aggregate, never private join IDs or distinct hidden lines. */
-export interface UnpublishedSpeciesResponse {
-  id: null;
-  species: null;
-  quantity: number;
-}
-
-export type PlantingEventSpeciesResponse =
-  | PlantingEventSpeciesLineResponse
-  | UnpublishedSpeciesResponse;
-
-export interface PlantingEventResponse extends PlantingEventListResponse {
-  /** Editors retain an inactive historical area reference for lossless form edits. */
-  planting_area: HistoricalPlantingAreaResponse | null;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  notes: string;
-  image_url: string;
-  /** Visible active area location if present, otherwise the site's location. */
-  location: LocationResponse | null;
-  /** Complete editable line set for editors; public redactions merge into one line. */
-  species: PlantingEventSpeciesResponse[];
-}
-
-// POST/PUT inputs: editable data only; server owns audit/deactivation fields.
-
-export interface LocationUpdateRequest {
-  /** Caller supplies this ID for a new location; preserve it on geometry edits. */
-  id: Id;
-  geometry: Geometry;
 }
 
 export interface SiteUpdateRequest {
   name: string;
   description: string;
-  /** Null explicitly removes/deactivates the old location. */
-  location: LocationUpdateRequest | null;
+  /** Supply an ID for a new location; retain it on edits. Null removes it. */
+  location: { id: Id; geometry: Geometry } | null;
   is_public: boolean;
 }
 
@@ -179,17 +53,68 @@ export interface SiteCreateRequest extends SiteUpdateRequest {
   id: Id;
 }
 
+// Planting areas
+
+export interface PlantingAreaListResponse {
+  id: Id;
+  name: string;
+  site: { id: Id; name: string; is_public: boolean };
+  position: Position | null;
+  is_public: boolean;
+}
+
+export interface PlantingAreaResponse extends PlantingAreaListResponse {
+  description: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  location: { id: Id; geometry: Geometry } | null;
+  totals: { planting_event_count: number; total_plants: number };
+  species_totals: {
+    /** Null when the catalogue reference is not visible to the caller. */
+    species: {
+      id: Id;
+      scientific_name: string;
+      common_name: string;
+      image_url: string;
+    } | null;
+    quantity: number;
+  }[];
+  planting_events: PlantingEventListResponse[];
+}
+
 export interface PlantingAreaUpdateRequest {
-  /** Required on create and immutable on update in this first API. */
+  /** Required on create and immutable on update. */
   site_id: Id;
   name: string;
   description: string;
-  location: LocationUpdateRequest | null;
+  location: { id: Id; geometry: Geometry } | null;
   is_public: boolean;
 }
 
 export interface PlantingAreaCreateRequest extends PlantingAreaUpdateRequest {
   id: Id;
+}
+
+// Species
+
+export interface SpeciesListResponse {
+  id: Id;
+  scientific_name: string;
+  common_name: string;
+  image_url: string;
+  /** Included so the client can search aliases without fetching every detail. */
+  aliases: string[];
+  is_public: boolean;
+}
+
+export interface SpeciesResponse extends SpeciesListResponse {
+  description: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  /** Counts this species only, not all plants in matching events. */
+  totals: { planting_event_count: number; total_plants: number };
+  /** All visible active events with a positive quantity of this species. */
+  planting_events: PlantingEventListResponse[];
 }
 
 export interface SpeciesUpdateRequest {
@@ -205,11 +130,46 @@ export interface SpeciesCreateRequest extends SpeciesUpdateRequest {
   id: Id;
 }
 
-export interface PlantingEventSpeciesUpdateRequest {
-  /** Caller-generated for new rows, retained from event detail for existing rows. */
+// Planting events
+
+export interface PlantingEventListResponse {
   id: Id;
-  species_id: Id;
-  quantity: number;
+  site: { id: Id; name: string; is_public: boolean };
+  /** Null if unassigned or not visible to the caller. */
+  planting_area: { id: Id; name: string } | null;
+  planting_date: CalendarDate;
+  event_type: PlantingEventType;
+  /** Visible positive-quantity species, for client-side filtering. */
+  species_ids: Id[];
+  total_plants: number;
+  is_public: boolean;
+}
+
+export interface PlantingEventResponse extends PlantingEventListResponse {
+  /** Retained inactive references remain available to editors. */
+  planting_area: { id: Id; name: string; is_active: boolean } | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  notes: string;
+  image_url: string;
+  /** Active visible area's location, falling back to the site's location. */
+  location: { id: Id; geometry: Geometry } | null;
+  /** Editors get every actual line. Public hidden quantities form one null group. */
+  species: (
+    | {
+        /** Event-species row ID, retained when editing. */
+        id: Id;
+        species: {
+          id: Id;
+          scientific_name: string;
+          common_name: string;
+          image_url: string;
+          is_active: boolean;
+        };
+        quantity: number;
+      }
+    | { id: null; species: null; quantity: number }
+  )[];
 }
 
 export interface PlantingEventUpdateRequest {
@@ -220,8 +180,13 @@ export interface PlantingEventUpdateRequest {
   notes: string;
   image_url: string;
   is_public: boolean;
-  /** Complete desired active line set. Omitted existing rows are soft-deactivated. */
-  species: PlantingEventSpeciesUpdateRequest[];
+  /** Complete desired line set; omitted existing rows are soft-deactivated. */
+  species: {
+    /** Caller-generated for new rows, retained for existing rows. */
+    id: Id;
+    species_id: Id;
+    quantity: number;
+  }[];
 }
 
 export interface PlantingEventCreateRequest extends PlantingEventUpdateRequest {
