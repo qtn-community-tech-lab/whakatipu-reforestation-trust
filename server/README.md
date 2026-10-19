@@ -2,6 +2,8 @@
 
 The `api` Supabase Edge Function implements species, site, planting-area and planting-event CRUD using Deno, Hono and the official Supabase server SDK. Development requests need no sign-in or API key at the handler. All active species, sites, planting areas and planting events, including unpublished records, are readable and editable. Google authentication and hosted deployment are later work.
 
+Use clear, direct TypeScript and Postgres code at an advanced graduate level. The [server agent guide](AGENTS.md) defines the coding rules; [the canonical HTTP contracts](../shared/api-types.ts) and the [spec's current development increment](../planning/spec.md#current-development-increment-all-four-domain-crud-apis) define the current behavior.
+
 Requests are assumed to match the TypeScript contracts. There is no Zod or replacement application request/response validation. Malformed JSON returns 400; Postgres constraints continue to enforce stored integrity. Extra body properties are ignored, trusted code supplies audit identities, and query strings do not filter results.
 
 ## Run locally
@@ -17,6 +19,8 @@ supabase migration up --local
 
 Initial startup applies migrations automatically; `migration up --local` applies pending migrations to an existing stack without a reset. Writes use the development actor `usr_000000000001` inserted by the domain migration. The API does not create or change this actor at startup; a missing/inactive actor makes writes fail with a sanitized 500.
 
+There is no separate application build step: Deno resolves the pinned dependencies from `supabase/functions/api/deno.json` and its committed lockfile. The `check` task type-checks the application, tests and runner; it does not start the API.
+
 Run `supabase functions serve api` from `server/`. The local function is available at `http://127.0.0.1:54321/functions/v1/api`. To supply custom origins:
 
 ```sh
@@ -28,7 +32,18 @@ supabase functions serve api --env-file supabase/functions/.env
 
 ## Endpoints
 
-Paths below are relative to the function URL.
+All 20 domain CRUD routes are implemented. Paths below are relative to the function URL. Each resource supports GET/POST on its collection and GET/PUT/DELETE on `/:id`.
+
+| Collection | List order | POST identity | Nested writes |
+| --- | --- | --- | --- |
+| `/species` | Scientific name, then ID ascending | Server-generated species ID | None |
+| `/sites` | Name, then ID ascending | Server-generated site ID | Location geometry; server creates or retains the location ID |
+| `/planting-areas` | Name, then ID ascending | Supplied area ID | Supplied new location ID and geometry; parent site stays fixed |
+| `/planting-events` | Planting date, then ID descending | Supplied event ID | Complete species-count set with supplied new line IDs |
+
+Lists return complete plain arrays and details return full objects. Query parameters have no effect. PUT replaces the complete editable form and takes identity from the path. POST returns 201 and a relative `Location` header with the ID percent-encoded as a URL path segment. JSON IDs retain their original values; clients should encode IDs when constructing URLs.
+
+The following species routes illustrate the common status/body behavior:
 
 | Method | Path           | Result                                                   |
 | ------ | -------------- | -------------------------------------------------------- |
@@ -137,19 +152,24 @@ Mutations check and lock the active audit user, lock existing resource rows, pre
 
 TypeScript constructs the public response objects and nested event summaries. SQL returns typed rows and aggregates rather than building API JSON. Detail results contain the resource row and typed arrays of related rows, keeping history complete despite the Data API row cap and preserving a consistent read snapshot.
 
-Details count positive active lines under active events and sites, including unpublished records in this development scope. Species totals count only the selected species; embedded event totals count all active lines, including inactive species. Inactive areas become null in event summaries; editor event details retain their historical identity. Event `species_ids` contains positive active catalogue references only. Histories sort by date descending then ID descending. Unsafe aggregate quantities return 409 before JavaScript parses JSON; failed reads never become fake zero totals.
+Site/area totals sum all active count lines under active events and sites, including unpublished records in this development scope. Their event counts include empty events. Species histories and event counts include only positive matching quantities; zero lines remain in event details for editing. Species totals count only the selected species; embedded event totals count all active lines, including inactive species. Inactive areas become null in event summaries; editor event details retain their historical identity. Event `species_ids` contains positive active catalogue references only. Histories sort by date descending then ID descending. Unsafe aggregate quantities return 409 before JavaScript parses JSON; failed reads never become fake zero totals.
 
-Site detail includes every active event, including events without counts. Its total sums all active event lines, including inactive catalogue references; editor species summaries retain those identities and omit zero-only groups. Active areas sort by name/ID; events sort by date/ID descending. Independent aggregates prevent areas and species joins from multiplying quantities. New migrations add the site functions and index without changing the existing migrations.
+Site detail includes every active event, including events without counts. Its total sums all active event lines, including inactive catalogue references; editor species summaries retain those identities and omit zero-only groups. Active areas sort by name/ID; events sort by date/ID descending. Independent aggregates prevent areas and species joins from multiplying quantities. Apply changes through new additive migrations once a migration has been applied; preserve existing data and migration history.
 
 Planting-area detail aggregates only events assigned to that area under its active parent site; it does not allocate site-only events. The read uses one snapshot and typed complete arrays, with safe integer checks before JSON conversion. Area writes lock the active actor, then parent site, area and owned location. A parent lock prevents concurrent site deletion from leaving a partially successful area save. Location inserts use primary-key conflicts to reject existing and concurrently claimed IDs across both owner tables.
 
-Event saves lock the actor, parent sites in ID order, the event, optional area, species in ID order and existing count rows. Parent locks prevent deletion races. A rare concurrent site move detected after acquiring the event lock returns 409 so the caller can retry with the current state. Desired sets are checked before changing lines; temporary deactivation inside the transaction allows species swaps without violating the active-pair unique index. Upserts preserve line creation fields and never move a line between events. SQL accepts the desired lines as JSONB input, returns typed rows, and checks event sums before JSON conversion.
+Event saves lock the actor, parent sites in ID order, the event, optional area, species in ID order and existing count rows. Parent locks prevent deletion races. A rare concurrent site move detected after acquiring the event lock returns 409 so the caller can retry with the current state. Desired sets are checked before changing lines; temporary deactivation inside the transaction allows species swaps without violating the active-pair unique index. Upserts preserve line creation fields and never move a line between events. SQL accepts the desired lines as JSONB input, returns typed rows, and checks event sums before JSON conversion. JSONB input for the desired set and stored geometry does not move HTTP response assembly into SQL.
+
+Expected database conflicts return 409; known constraint, numeric/date, null-byte and malformed-Unicode input errors return sanitized 400 responses. Unexpected failures remain sanitized 500s. The alias constraint guards its dimensionality before calling array operations, so nested arrays fail as constraint violations. These checks preserve database integrity without adding application request validators.
+
+The six migrations currently define the seven domain tables, species/site/area/event read and write RPCs, server-only grants, supporting indexes and the guarded species-alias constraint. Development actors live in the domain migration; there is no separate fixture seed or startup provisioning step. Historical import is specified but its operator script has not been implemented.
 
 The canonical HTTP contracts and primitives live in the monorepo's `shared/api-types.ts`. The function's `deno.json` maps `@wrt/api-types` to that file, and server modules use `import type` so these imports are erased from runtime code. Keep this shared module limited to types; runtime utilities need separate consideration for Supabase bundling and local container paths. Database types are generated separately; `api/database.types.ts` describes the non-null composite result fields guaranteed by SQL, which introspection cannot infer. RPC calls use explicit result-type overrides without runtime validation.
 
-After changing migrations, regenerate persistence types from the migrated local database:
+After changing migrations, apply them locally without a reset and regenerate persistence types. Constraint-only changes may produce identical types; keep the generated file unchanged when the formatted result matches:
 
 ```sh
+supabase migration up --local
 supabase gen types typescript --local --schema public > /tmp/wrt-database.types.ts && cp /tmp/wrt-database.types.ts supabase/functions/_shared/database.types.ts
 deno fmt supabase/functions/_shared/database.types.ts
 ```
@@ -165,7 +185,19 @@ deno task --config supabase/functions/api/deno.json check
 supabase db lint --local --level warning
 ```
 
-Run all HTTP suites with Docker running, from `server/`:
+The current test inventory is:
+
+| Suite | Steps | Main coverage |
+| --- | ---: | --- |
+| `tests/species_test.ts` | 6 | Catalogue CRUD, fields, constraints, HTTP behavior and complete lists |
+| `tests/sites_test.ts` | 9 | Site CRUD, owned-location lifecycle, rollback, concurrent saves and complete lists |
+| `tests/planting-areas_test.ts` | 11 | Area CRUD, immutable parents, location ownership/history and complete nested collections |
+| `tests/planting-events_test.ts` | 13 | Event CRUD, desired count sets, inactive references, totals, concurrency and complete events/lines |
+| `tests/workflows_test.ts` | 13 | Cross-resource reconciliation, unusual inputs, rollback, live references and deletion races |
+
+The last full local verification on 20 October 2026 passed all five suites and 52 steps, plus formatting, lint, type checks and database lint. This records a completed run rather than a line/branch coverage percentage. Update this inventory when tests change.
+
+Run all HTTP suites with Docker running, from `server/`. Stop any manually served function process first; the runner owns its serving process:
 
 ```sh
 deno task --config supabase/functions/api/deno.json test
@@ -194,7 +226,7 @@ Event tests cover non-zero site/area/species totals and histories, whole-event s
 
 Additional workflow regressions cover literal Unicode/SQL-like text, duplicate/empty aliases, coordinate extrema and malformed geometry, catalogue constraint rollback (including null bytes and malformed Unicode), three-way count swaps, ownership of lines under deleted events, and Unicode/reserved-character IDs. Returned `Location` URLs percent-encode IDs; response-body IDs remain unchanged. A guarded alias constraint rejects multidimensional arrays with a normal 400 instead of an unsupported-operation 500.
 
-All 20 domain CRUD routes in the spec are implemented. Locations and event-species lines are nested resources, not additional endpoints; historical import remains an operator script. Current coverage is behavioral HTTP integration coverage, not a measured 100% line/branch result. Direct verification of private audit/deactivation fields and active-actor failure paths, automated browser-role/default-grant checks, hosted CORS/runtime behavior, migration replay/recovery and the future authentication/public-view rules need separate checks. Do not label these gaps covered by successful CRUD tests.
+All 20 domain CRUD routes in the spec are implemented. Locations and event-species lines are nested resources, not additional endpoints; historical import remains an operator script. Current coverage is behavioral HTTP integration coverage, not a measured 100% line/branch result. Direct verification of private audit/deactivation fields and active-actor failure paths, automated browser-role/default-grant checks, hosted CORS/runtime behavior, migration replay/recovery and the future authentication/public-view rules need separate checks. Historical import and its tests are also outstanding. Do not label these gaps covered by successful CRUD tests.
 
 Supabase CLI 2.121.0's local Kong CORS plugin handles preflights with 200 (the function itself uses 204) and rewrites `Access-Control-Allow-Origin` to `*`, even when the function returns a configured origin. Generated Kong configuration is left under CLI control. Verify effective gateway CORS when deploying to a hosted development project; local behavior does not establish hosted behavior.
 
