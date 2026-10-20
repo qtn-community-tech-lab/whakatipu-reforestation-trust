@@ -33,6 +33,8 @@ Use clear, direct TypeScript and Postgres code at an advanced graduate level. Re
 
 All resource queries use a shared TypeScript helper for database timing and error logging. All 16 SQL functions also log named stages, completion outcomes and failures, correlated with Edge logs through the response's `X-Request-ID`. See the [server runbook](server/README.md#endpoints) for log events and PostgreSQL troubleshooting.
 
+Expected failures include specific client reasons, actionable messages and optional field guidance. Every error body includes the generated request ID. Internal logs retain PostgreSQL exception context and TypeScript stack frames/cause chains; raw database messages/details and credentials are omitted from these diagnostics. The reasons and stack-logging changes have static verification only; no local tests or migrations were run for them.
+
 Requests are assumed to match their TypeScript contracts. There are no application request validators or runtime response schemas. JSON parsing, database constraints and transactional business rules still reject invalid operations. Resource IDs are server-generated. New event-count rows may omit `id` for server generation; retain returned IDs when editing. Area-location inputs still accept supplied IDs. Events accept free-text `season`, and their lists and histories include `image_url`. Species references in totals and event counts are non-null. PUT uses the path ID. All writes preserve audit history and DELETE means soft deactivation.
 
 ## Verification

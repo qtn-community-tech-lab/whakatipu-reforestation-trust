@@ -32,6 +32,7 @@ The following agreed development choices take precedence over the later target b
 - Assume requests match the TypeScript contracts. Do not add Zod, replacement request validators, path-ID validators or response-schema validators. JSON parsing failures return 400; existing database constraints remain enforced. Extra request properties are ignored. Audit identities always come from trusted code; PUT identity comes from its path, and only nested area-location/count inputs accept the IDs declared in their contracts. Query parameters have no effect and do not add filtering.
 - Retain the full species, site, planting-area and planting-event detail contracts, including real totals and complete related summaries. Site details include owned geometry, per-species quantities, active planting areas and event history. Area details include their current parent site, owned location and area-specific totals/history. Event details include all active lines (including zero quantities and inactive species), historical area identity and effective area/site location. Preserve soft deactivation, audit history, safe aggregate limits and the server-only table/RPC access boundary.
 - Keep Postgres functions lightweight: use typed queries for catalogue lists and small RPCs for consistent detail reads, event-list aggregates and transactional writes. Assemble public response objects in TypeScript, not SQL JSON builders. This takes precedence over older SQL response-assembly recommendations below.
+- Error responses include a stable `reason`, actionable message, the generated `request_id` and optional field guidance. Fixed SQL hints identify expected business failures; TypeScript chooses their public wording. Internally capture PostgreSQL exception context and TypeScript stack frames/cause chains, while omitting raw database messages/details and credentials. Stack traces and SQL context stay in internal logs. Edit the existing unreleased migrations and do not run tests locally unless explicitly requested.
 
 Canonical contracts are in [the monorepo shared module](../shared/api-types.ts), imported by Deno through the function's `@wrt/api-types` alias using `import type`. [The server runbook](../server/README.md) describes the current implementation, checks and local gateway behavior. The wider acceptance matrix below remains the target for resources and authentication not yet implemented.
 
@@ -549,6 +550,10 @@ export interface ErrorResponse {
       | "conflict"
       | "internal_error";
     message: string;
+    /** Stable failure identifier, e.g. "inactive_species". */
+    reason: string;
+    /** Matches the response's X-Request-ID header. */
+    request_id: string;
     /** Optional field-path errors, e.g. { "species.0.quantity": "Must be >= 0" }. */
     fields?: Record<string, string>;
   };
@@ -716,12 +721,14 @@ Example validation response:
   "error": {
     "code": "validation_error",
     "message": "Check the supplied fields.",
+    "reason": "invalid_values",
+    "request_id": "5fe42f4e-21fa-4d31-938a-ff58539a0e44",
     "fields": { "species.0.quantity": "Must be a non-negative safe integer." }
   }
 }
 ```
 
-Translate known database failures into stable API errors. Never expose SQL statements, constraint internals, stack traces, credentials, emails of other users or token contents. Log a correlation/request identifier and safe error context server-side; returning that identifier in a response header is sufficient.
+Translate known database failures into stable API errors. Return `reason`, an actionable message, the generated `request_id` and optional `fields` guidance. Keep SQL statements, constraint internals, stack traces, credentials, emails of other users and token contents out of HTTP responses. SQL handlers attach fixed `wrt:<reason>` hints and rethrow the original exceptions. Only recognized hints paired with their expected SQLSTATE select public messages. Record PostgreSQL exception context and TypeScript stack frames/cause chains in internal logs with the same request ID; omit raw database messages/details and strip messages and URL credentials/query strings from TypeScript stacks.
 
 ## 14. Historical import
 

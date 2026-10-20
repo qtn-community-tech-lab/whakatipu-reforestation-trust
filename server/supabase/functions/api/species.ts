@@ -97,7 +97,9 @@ export async function getSpecies(
   );
   if (data === null) {
     log("species.get.not_found", { species_id: id }, "warn");
-    throw new HttpError(404, "not_found", "Species not found.");
+    throw new HttpError(404, "not_found", "Species not found.", {
+      reason: "species_not_found",
+    });
   }
   const response = speciesResponse(data);
   log("species.get.completed", {

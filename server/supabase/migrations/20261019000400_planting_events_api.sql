@@ -32,6 +32,8 @@ declare
   failed_constraint text;
   failed_table text;
   failed_column text;
+  failed_hint text;
+  exception_context text;
 begin
   log_context := jsonb_build_object(
     'rpc', 'planting_event_get', 'request_id', request_headers ->> 'x-request-id',
@@ -74,7 +76,9 @@ begin
   end if;
   stage := 'check_aggregates';
   if result.total_plants > 9007199254740991 then
-    raise sqlstate 'PT409' using message = 'Aggregate exceeds the safe integer range.';
+    raise sqlstate 'PT409' using
+      message = 'Aggregate exceeds the safe integer range.',
+      hint = 'wrt:aggregate_out_of_range';
   end if;
   return next result;
   raise log '%', log_context || jsonb_build_object(
@@ -87,13 +91,17 @@ exception when others then
   get stacked diagnostics
     failed_constraint = constraint_name,
     failed_table = table_name,
-    failed_column = column_name;
-  -- Preserve the original SQLSTATE and rollback; never log supplied values,
-  -- exception messages/details or SQL context.
+    failed_column = column_name,
+    failed_hint = pg_exception_hint,
+    exception_context = pg_exception_context;
+  -- Keep the original error and its stack. Raw messages/details can contain
+  -- rejected row values; only the fixed hint and exception context are logged.
   raise log '%', log_context || jsonb_build_object(
     'timestamp', clock_timestamp(), 'level', 'error',
     'event', 'database.function.failed', 'stage', stage,
     'database_code', sqlstate,
+    'reason', case when left(failed_hint, 4) = 'wrt:' then substr(failed_hint, 5) else null end,
+    'exception_context', exception_context,
     'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
     'column', nullif(failed_column, ''),
     'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
@@ -120,6 +128,8 @@ declare
   failed_constraint text;
   failed_table text;
   failed_column text;
+  failed_hint text;
+  exception_context text;
 begin
   log_context := jsonb_build_object(
     'rpc', 'planting_event_list', 'request_id', request_headers ->> 'x-request-id',
@@ -154,7 +164,9 @@ begin
   stage := 'check_aggregates';
   foreach summary in array summaries loop
     if summary.total_plants > 9007199254740991 then
-      raise sqlstate 'PT409' using message = 'Aggregate exceeds the safe integer range.';
+      raise sqlstate 'PT409' using
+        message = 'Aggregate exceeds the safe integer range.',
+        hint = 'wrt:aggregate_out_of_range';
     end if;
   end loop;
   return query select summaries;
@@ -169,13 +181,17 @@ exception when others then
   get stacked diagnostics
     failed_constraint = constraint_name,
     failed_table = table_name,
-    failed_column = column_name;
-  -- Preserve the original SQLSTATE and rollback; never log supplied values,
-  -- exception messages/details or SQL context.
+    failed_column = column_name,
+    failed_hint = pg_exception_hint,
+    exception_context = pg_exception_context;
+  -- Keep the original error and its stack. Raw messages/details can contain
+  -- rejected row values; only the fixed hint and exception context are logged.
   raise log '%', log_context || jsonb_build_object(
     'timestamp', clock_timestamp(), 'level', 'error',
     'event', 'database.function.failed', 'stage', stage,
     'database_code', sqlstate,
+    'reason', case when left(failed_hint, 4) = 'wrt:' then substr(failed_hint, 5) else null end,
+    'exception_context', exception_context,
     'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
     'column', nullif(failed_column, ''),
     'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
@@ -212,6 +228,8 @@ declare
   failed_constraint text;
   failed_table text;
   failed_column text;
+  failed_hint text;
+  exception_context text;
 begin
   log_context := jsonb_build_object(
     'rpc', 'planting_event_save', 'request_id', request_headers ->> 'x-request-id',
@@ -226,7 +244,9 @@ begin
 
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
   if not found then
-    raise sqlstate 'PT500' using message = 'Audit actor unavailable.';
+    raise sqlstate 'PT500' using
+      message = 'Audit actor unavailable.',
+      hint = 'wrt:audit_actor_unavailable';
   end if;
 
   stage := 'lock_parents';
@@ -241,36 +261,48 @@ begin
     if not found or not exists (
       select 1 from public.sites where id = saved.site_id and deactivated_at is null
     ) then
-      raise sqlstate 'PT404' using message = 'Planting event not found.';
+      raise sqlstate 'PT404' using
+        message = 'Planting event not found.',
+        hint = 'wrt:planting_event_not_found';
     end if;
     -- A concurrent save may have moved it after our initial parent lookup.
     -- Retry rather than taking a late parent lock in an inconsistent order.
     if saved.site_id is distinct from old_site_id then
-      raise sqlstate 'PT409' using message = 'The event changed concurrently; retry the save.';
+      raise sqlstate 'PT409' using
+        message = 'The event changed concurrently; retry the save.',
+        hint = 'wrt:concurrent_site_move';
     end if;
   end if;
   stage := 'check_site';
   if not exists (select 1 from public.sites where id = p_site_id and deactivated_at is null) then
-    raise sqlstate 'PT409' using message = 'Site unavailable.';
+    raise sqlstate 'PT409' using
+      message = 'Site unavailable.',
+      hint = 'wrt:site_unavailable';
   end if;
 
   stage := 'check_area';
   if area_id is not null then
     select * into selected_area from public.planting_areas where id = area_id for share;
     if not found or selected_area.site_id is distinct from p_site_id then
-      raise sqlstate 'PT409' using message = 'Area must belong to the selected site.';
+      raise sqlstate 'PT409' using
+        message = 'Area must belong to the selected site.',
+        hint = 'wrt:area_site_mismatch';
     end if;
     if selected_area.deactivated_at is not null and (
       p_create or saved.planting_area_id is distinct from area_id or saved.site_id is distinct from p_site_id
     ) then
-      raise sqlstate 'PT409' using message = 'Area unavailable.';
+      raise sqlstate 'PT409' using
+        message = 'Area unavailable.',
+        hint = 'wrt:inactive_area';
     end if;
   end if;
 
   stage := 'check_desired_counts';
   if (select count(*) <> count(distinct id) or count(*) <> count(distinct species_id)
     from jsonb_to_recordset(p_species) as desired(id text, species_id text, quantity bigint)) then
-    raise sqlstate 'PT409' using message = 'Duplicate count or species IDs.';
+    raise sqlstate 'PT409' using
+      message = 'Duplicate count or species IDs.',
+      hint = 'wrt:invalid_count_set';
   end if;
 
   stage := 'lock_species';
@@ -288,17 +320,23 @@ begin
   loop
     select * into existing from public.planting_event_species where id = line.id;
     if found and existing.planting_event_id <> p_id then
-      raise sqlstate 'PT409' using message = 'Count row belongs to another event.';
+      raise sqlstate 'PT409' using
+        message = 'Count row belongs to another event.',
+        hint = 'wrt:count_belongs_to_another_event';
     end if;
     select * into catalogue from public.species where id = line.species_id;
     if not found then
-      raise sqlstate 'PT409' using message = 'Species unavailable.';
+      raise sqlstate 'PT409' using
+        message = 'Species unavailable.',
+        hint = 'wrt:species_unavailable';
     end if;
     if catalogue.deactivated_at is not null and (
       existing.id is null or existing.deactivated_at is not null
       or existing.species_id is distinct from line.species_id
     ) then
-      raise sqlstate 'PT409' using message = 'Species unavailable.';
+      raise sqlstate 'PT409' using
+        message = 'Species unavailable.',
+        hint = 'wrt:inactive_species';
     end if;
   end loop;
 
@@ -336,7 +374,9 @@ begin
     where public.planting_event_species.planting_event_id = p_id;
     -- A concurrent insert of the same ID by another event must not be a silent no-op.
     if not found then
-      raise sqlstate 'PT409' using message = 'Count row belongs to another event.';
+      raise sqlstate 'PT409' using
+        message = 'Count row belongs to another event.',
+        hint = 'wrt:count_belongs_to_another_event';
     end if;
   end loop;
 
@@ -352,13 +392,17 @@ exception when others then
   get stacked diagnostics
     failed_constraint = constraint_name,
     failed_table = table_name,
-    failed_column = column_name;
-  -- Preserve the original SQLSTATE and rollback; never log supplied values,
-  -- exception messages/details or SQL context.
+    failed_column = column_name,
+    failed_hint = pg_exception_hint,
+    exception_context = pg_exception_context;
+  -- Keep the original error and its stack. Raw messages/details can contain
+  -- rejected row values; only the fixed hint and exception context are logged.
   raise log '%', log_context || jsonb_build_object(
     'timestamp', clock_timestamp(), 'level', 'error',
     'event', 'database.function.failed', 'stage', stage,
     'database_code', sqlstate,
+    'reason', case when left(failed_hint, 4) = 'wrt:' then substr(failed_hint, 5) else null end,
+    'exception_context', exception_context,
     'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
     'column', nullif(failed_column, ''),
     'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
@@ -384,6 +428,8 @@ declare
   failed_constraint text;
   failed_table text;
   failed_column text;
+  failed_hint text;
+  exception_context text;
 begin
   log_context := jsonb_build_object(
     'rpc', 'planting_event_deactivate', 'request_id', request_headers ->> 'x-request-id',
@@ -398,22 +444,30 @@ begin
 
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
   if not found then
-    raise sqlstate 'PT500' using message = 'Audit actor unavailable.';
+    raise sqlstate 'PT500' using
+      message = 'Audit actor unavailable.',
+      hint = 'wrt:audit_actor_unavailable';
   end if;
   stage := 'lock_site';
   select site_id into parent_id from public.planting_events where id = p_id;
   perform 1 from public.sites where id = parent_id and deactivated_at is null for share;
   if not found then
-    raise sqlstate 'PT404' using message = 'Planting event not found.';
+    raise sqlstate 'PT404' using
+      message = 'Planting event not found.',
+      hint = 'wrt:planting_event_not_found';
   end if;
   stage := 'lock_event';
   select * into saved from public.planting_events where id = p_id for update;
   if not found then
-    raise sqlstate 'PT404' using message = 'Planting event not found.';
+    raise sqlstate 'PT404' using
+      message = 'Planting event not found.',
+      hint = 'wrt:planting_event_not_found';
   end if;
   stage := 'check_parent';
   if saved.site_id is distinct from parent_id then
-    raise sqlstate 'PT409' using message = 'The event changed concurrently; retry the delete.';
+    raise sqlstate 'PT409' using
+      message = 'The event changed concurrently; retry the delete.',
+      hint = 'wrt:concurrent_site_move';
   end if;
   if saved.deactivated_at is not null then
     raise log '%', log_context || jsonb_build_object(
@@ -439,13 +493,17 @@ exception when others then
   get stacked diagnostics
     failed_constraint = constraint_name,
     failed_table = table_name,
-    failed_column = column_name;
-  -- Preserve the original SQLSTATE and rollback; never log supplied values,
-  -- exception messages/details or SQL context.
+    failed_column = column_name,
+    failed_hint = pg_exception_hint,
+    exception_context = pg_exception_context;
+  -- Keep the original error and its stack. Raw messages/details can contain
+  -- rejected row values; only the fixed hint and exception context are logged.
   raise log '%', log_context || jsonb_build_object(
     'timestamp', clock_timestamp(), 'level', 'error',
     'event', 'database.function.failed', 'stage', stage,
     'database_code', sqlstate,
+    'reason', case when left(failed_hint, 4) = 'wrt:' then substr(failed_hint, 5) else null end,
+    'exception_context', exception_context,
     'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
     'column', nullif(failed_column, ''),
     'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)

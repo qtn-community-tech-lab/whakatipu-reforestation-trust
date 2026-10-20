@@ -136,15 +136,48 @@ curl -i -X PUT "http://127.0.0.1:54321/functions/v1/api/species/<species-id>" \
 curl -i -X DELETE "http://127.0.0.1:54321/functions/v1/api/species/<species-id>"
 ```
 
-Replace `<species-id>` with the returned ID. Inactive species return 404 for GET/PUT. Repeated DELETE returns 204 without rewriting audit fields; unknown IDs return 404. HEAD follows GET and OPTIONS handles preflight. Unsupported methods return 405 with `Allow`. Errors use `{ "error": { "code": "...", "message": "..." } }`. Database errors and credentials are never exposed.
+Replace `<species-id>` with the returned ID. Inactive species return 404 for GET/PUT. Repeated DELETE returns 204 without rewriting audit fields; unknown IDs return 404. HEAD follows GET and OPTIONS handles preflight. Unsupported methods return 405 with `Allow`. Every error includes `code`, `message`, `reason` and `request_id`, with optional field guidance. The request ID matches `X-Request-ID`. Expected business failures return actionable messages; unknown failures retain a generic 500 message. Raw database errors, stacks and credentials are never returned.
+
+For example, an attempt to add a new count using an inactive species returns 409:
+
+```json
+{
+  "error": {
+    "code": "conflict",
+    "message": "An inactive species can only be kept on its unchanged existing active count row.",
+    "reason": "inactive_species",
+    "request_id": "5fe42f4e-21fa-4d31-938a-ff58539a0e44",
+    "fields": {
+      "species": "Select active species for new, changed or reactivated species links."
+    }
+  }
+}
+```
+
+SQL uses fixed `wrt:<reason>` error hints. The Edge error mapper recognizes only known hint/SQLSTATE pairs, chooses its own public wording and never forwards arbitrary hints. This preserves the original exception, SQLSTATE and rollback without changing function signatures. Reasons cover aggregate overflow, unavailable audit actor, resource misses, concurrent site moves, unavailable sites, mismatched/inactive areas, invalid count sets, foreign count IDs, missing/inactive species and immutable area parents. Built-in uniqueness and foreign-key failures use `duplicate_record` and `referenced_record_unavailable`; known input errors use `invalid_values`. HTTP parsing, method and route failures have their own reasons. Unrecognized failures remain `internal_error`.
+
+| Business reason | HTTP | Meaning |
+| --- | ---: | --- |
+| `aggregate_out_of_range` | 409 | Combined quantities exceed the safe integer range |
+| `audit_actor_unavailable` | 500 | The server's saving account is unavailable |
+| `species_not_found`, `site_not_found`, `planting_area_not_found`, `planting_event_not_found` | 404 | The requested record is unavailable |
+| `concurrent_site_move` | 409 | Reload the event after a concurrent site move |
+| `site_unavailable` | 409 | Select an active site |
+| `area_site_mismatch` | 409 | Select an existing area belonging to the selected site |
+| `inactive_area` | 409 | An inactive area can only remain on its existing event/site |
+| `invalid_count_set` | 409 | Supply distinct, present count IDs and species IDs |
+| `count_belongs_to_another_event` | 409 | Use this event's count IDs; omit IDs for new lines |
+| `species_unavailable` | 409 | A selected species no longer exists |
+| `inactive_species` | 409 | New or changed species links require active species |
+| `parent_site_immutable` | 409 | Keep the planting area's original site |
 
 Responses use `Cache-Control: private, no-store` and a generated `X-Request-ID`. Verbose structured JSON logs are enabled for all implemented resources. Each line includes a timestamp, level, event name, request ID, method and path. The response's `X-Request-ID` connects the browser request to its logs.
 
-Logs trace request start/completion, database context initialization, POST/PUT JSON parsing, each resource operation, and every catalogue batch with its offset, row count and duration. Write logs include the resource ID and trusted audit actor. Detail completions include the related event/count-line count. The shared `queryDatabase` helper records `database.started` and `database.completed` for every resource query, with `database_operation` naming the RPC or list batch. Returned SDK errors produce `database.failed` with their code; thrown exceptions produce `database.exception` with their error type. Both failures include elapsed time and propagate to the existing HTTP error handler. A repeated DELETE completion means the idempotent RPC succeeded, not that a new deactivation timestamp was written.
+Logs trace request start/completion, database context initialization, POST/PUT JSON parsing, each resource operation, and every catalogue batch with its offset, row count and duration. Write logs include the resource ID and trusted audit actor. Detail completions include the related event/count-line count. The shared `queryDatabase` helper records `database.started` and `database.completed` for every resource query, with `database_operation` naming the RPC or list batch. Returned SDK errors produce `database.failed` with their code and mapped reason; thrown exceptions produce `database.exception`. Failures include TypeScript stack frames and Error cause chains where available, plus elapsed time. Unstructured thrown values get a stack at the logging boundary, identified by `error_stack_source: "logging_boundary"`, without inspecting their contents. Returned SDK errors get a stack at the point they are mapped to `HttpError`; the original SQL stack is in PostgreSQL logs. A repeated DELETE completion means the idempotent RPC succeeded, not that a new deactivation timestamp was written.
 
 Run `supabase functions serve api` from `server/` to see logs in the terminal. Filter by `request_id` to follow a request; the last started stage before `database.failed` or `request.failed` identifies where it stopped. Logs omit request bodies, response bodies, credentials, headers, query strings and raw database messages/details, which can contain supplied values. The test runner suppresses function logs to keep its bulk test output readable.
 
-All 16 database functions emit structured PostgreSQL logs: `database.function.started`, `database.function.completed` and `database.function.failed`. This covers species, site and planting-area detail/create/update/deactivate functions, plus planting-event detail/list/save/deactivate functions. The Edge SDK forwards the generated request ID and original method/path as internal database-request metadata, so SQL and Edge logs share `request_id`. No caller-supplied request ID is trusted. SQL failures include a named `stage`, SQLSTATE and available table/column/constraint names, without logging exception messages, details or SQL text. Completion logs include elapsed time and an `outcome`: `success`, `not_found` for empty detail reads, or `already_inactive` for repeated accessible deletes. The event list also logs its event count. A SQL completion means the function finished; the subsequent Edge database completion confirms the Data API call succeeded.
+All 16 database functions emit structured PostgreSQL logs: `database.function.started`, `database.function.completed` and `database.function.failed`. This covers species, site and planting-area detail/create/update/deactivate functions, plus planting-event detail/list/save/deactivate functions. The Edge SDK forwards the generated request ID and original method/path as internal database-request metadata, so SQL and Edge logs share `request_id`. No caller-supplied request ID is trusted. SQL failures include a named `stage`, fixed reason where available, SQLSTATE, table/column/constraint names and the full `PG_EXCEPTION_CONTEXT` under `exception_context`. This [PostgreSQL diagnostic](https://www.postgresql.org/docs/current/plpgsql-control-structures.html#PLPGSQL-EXCEPTION-DIAGNOSTICS) preserves the exception's original call stack and can contain source SQL. It is internal only. Raw database exception messages/details, which can contain rejected rows, are omitted. TypeScript stack logs omit error messages and URL credentials/query strings/fragments, retain Error cause frames and stop cyclic cause chains. Completion logs include elapsed time and an `outcome`: `success`, `not_found` for empty detail reads, or `already_inactive` for repeated accessible deletes. The event list also logs its event count. A SQL completion means the function finished; the subsequent Edge database completion confirms the Data API call succeeded.
 
 For local PostgreSQL logs:
 
@@ -209,7 +242,7 @@ The current test inventory is:
 
 The contract-update verification on 20 October 2026 passed formatting, lint, type checks and database lint. All 14 planting-event steps passed. The full HTTP run finished with 36 passing and 17 failing steps after local Edge worker startup failures, gateway errors/timeouts and eventual connection refusal. Some test-fixture cleanup remains incomplete; local migration history has since been reconciled. The initial planting-event diagnostics passed formatting, lint and type checks, and a targeted HTTP check verified that Edge and SQL failure logs share the generated request ID, identify the SQL stage and omit supplied notes. The subsequent full HTTP run was stopped at James's request; there is no new full-suite result. The expansion to all 16 SQL functions has had static source review only. Do not run tests locally unless explicitly requested.
 
-The subsequent expansion to all 16 SQL functions was reviewed statically only. No local migrations, database lint or HTTP tests were run for that expansion; its SQL runtime behavior remains unverified.
+The subsequent expansion to all 16 SQL functions and the failure-reason/stack-logging changes have static verification only. No local migrations, database lint or tests were run for these changes; SQL runtime behavior and the updated HTTP error responses remain unverified. Existing event regressions now assert specific reasons, and `tests/http.ts` checks the error body/request ID and absence of unexpected diagnostic fields. `tests/logging_test.ts` and `tests/http-errors_test.ts` add four pure checks for stack redaction/cyclic causes, fixed-hint mapping and unknown/mismatched hints; these were type-checked without execution. The five HTTP suites still contain 53 steps.
 
 Run all HTTP suites with Docker running, from `server/`. Stop any manually served function process first; the runner owns its serving process:
 

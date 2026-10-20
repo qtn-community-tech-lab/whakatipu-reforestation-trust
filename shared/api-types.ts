@@ -207,6 +207,10 @@ export interface ErrorResponse {
       | "conflict"
       | "internal_error";
     message: string;
+    /** Stable failure identifier, e.g. "inactive_species". */
+    reason: string;
+    /** Matches the response's X-Request-ID header. */
+    request_id: string;
     /** Optional field-path errors, e.g. { "species.0.quantity": "Must be >= 0" }. */
     fields?: Record<string, string>;
   };

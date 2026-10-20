@@ -61,6 +61,8 @@ declare
   failed_constraint text;
   failed_table text;
   failed_column text;
+  failed_hint text;
+  exception_context text;
 begin
   log_context := jsonb_build_object(
     'rpc', 'species_get', 'request_id', request_headers ->> 'x-request-id',
@@ -127,7 +129,10 @@ begin
     or result.planting_event_count > 9007199254740991
     or exists (select 1 from unnest(result.events) e where e.total_plants > 9007199254740991)
   then
-    raise exception using errcode = 'PT409', message = 'Planting total exceeds the supported integer range.';
+    raise exception using
+      errcode = 'PT409',
+      message = 'Planting total exceeds the supported integer range.',
+      hint = 'wrt:aggregate_out_of_range';
   end if;
   return next result;
   raise log '%', log_context || jsonb_build_object(
@@ -140,13 +145,17 @@ exception when others then
   get stacked diagnostics
     failed_constraint = constraint_name,
     failed_table = table_name,
-    failed_column = column_name;
-  -- Preserve the original SQLSTATE and rollback; never log supplied values,
-  -- exception messages/details or SQL context.
+    failed_column = column_name,
+    failed_hint = pg_exception_hint,
+    exception_context = pg_exception_context;
+  -- Keep the original error and its stack. Raw messages/details can contain
+  -- rejected row values; only the fixed hint and exception context are logged.
   raise log '%', log_context || jsonb_build_object(
     'timestamp', clock_timestamp(), 'level', 'error',
     'event', 'database.function.failed', 'stage', stage,
     'database_code', sqlstate,
+    'reason', case when left(failed_hint, 4) = 'wrt:' then substr(failed_hint, 5) else null end,
+    'exception_context', exception_context,
     'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
     'column', nullif(failed_column, ''),
     'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
@@ -172,6 +181,8 @@ declare
   failed_constraint text;
   failed_table text;
   failed_column text;
+  failed_hint text;
+  exception_context text;
 begin
   log_context := jsonb_build_object(
     'rpc', 'species_create', 'request_id', request_headers ->> 'x-request-id',
@@ -188,7 +199,10 @@ begin
   -- SHARE permits concurrent saves but prevents actor deactivation during a save.
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
   if not found then
-    raise exception using errcode = 'PT500', message = 'Development audit user is missing or inactive.';
+    raise exception using
+      errcode = 'PT500',
+      message = 'Development audit user is missing or inactive.',
+      hint = 'wrt:audit_actor_unavailable';
   end if;
 
   stage := 'save_species';
@@ -211,13 +225,17 @@ exception when others then
   get stacked diagnostics
     failed_constraint = constraint_name,
     failed_table = table_name,
-    failed_column = column_name;
-  -- Preserve the original SQLSTATE and rollback; never log supplied values,
-  -- exception messages/details or SQL context.
+    failed_column = column_name,
+    failed_hint = pg_exception_hint,
+    exception_context = pg_exception_context;
+  -- Keep the original error and its stack. Raw messages/details can contain
+  -- rejected row values; only the fixed hint and exception context are logged.
   raise log '%', log_context || jsonb_build_object(
     'timestamp', clock_timestamp(), 'level', 'error',
     'event', 'database.function.failed', 'stage', stage,
     'database_code', sqlstate,
+    'reason', case when left(failed_hint, 4) = 'wrt:' then substr(failed_hint, 5) else null end,
+    'exception_context', exception_context,
     'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
     'column', nullif(failed_column, ''),
     'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
@@ -243,6 +261,8 @@ declare
   failed_constraint text;
   failed_table text;
   failed_column text;
+  failed_hint text;
+  exception_context text;
 begin
   log_context := jsonb_build_object(
     'rpc', 'species_update', 'request_id', request_headers ->> 'x-request-id',
@@ -257,12 +277,18 @@ begin
 
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
   if not found then
-    raise exception using errcode = 'PT500', message = 'Development audit user is missing or inactive.';
+    raise exception using
+      errcode = 'PT500',
+      message = 'Development audit user is missing or inactive.',
+      hint = 'wrt:audit_actor_unavailable';
   end if;
   stage := 'lock_species';
   perform 1 from public.species where id = p_id and deactivated_at is null for update;
   if not found then
-    raise exception using errcode = 'PT404', message = 'Species not found.';
+    raise exception using
+      errcode = 'PT404',
+      message = 'Species not found.',
+      hint = 'wrt:species_not_found';
   end if;
 
   stage := 'save_species';
@@ -283,13 +309,17 @@ exception when others then
   get stacked diagnostics
     failed_constraint = constraint_name,
     failed_table = table_name,
-    failed_column = column_name;
-  -- Preserve the original SQLSTATE and rollback; never log supplied values,
-  -- exception messages/details or SQL context.
+    failed_column = column_name,
+    failed_hint = pg_exception_hint,
+    exception_context = pg_exception_context;
+  -- Keep the original error and its stack. Raw messages/details can contain
+  -- rejected row values; only the fixed hint and exception context are logged.
   raise log '%', log_context || jsonb_build_object(
     'timestamp', clock_timestamp(), 'level', 'error',
     'event', 'database.function.failed', 'stage', stage,
     'database_code', sqlstate,
+    'reason', case when left(failed_hint, 4) = 'wrt:' then substr(failed_hint, 5) else null end,
+    'exception_context', exception_context,
     'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
     'column', nullif(failed_column, ''),
     'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
@@ -314,6 +344,8 @@ declare
   failed_constraint text;
   failed_table text;
   failed_column text;
+  failed_hint text;
+  exception_context text;
 begin
   log_context := jsonb_build_object(
     'rpc', 'species_deactivate', 'request_id', request_headers ->> 'x-request-id',
@@ -328,13 +360,19 @@ begin
 
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
   if not found then
-    raise exception using errcode = 'PT500', message = 'Development audit user is missing or inactive.';
+    raise exception using
+      errcode = 'PT500',
+      message = 'Development audit user is missing or inactive.',
+      hint = 'wrt:audit_actor_unavailable';
   end if;
   stage := 'lock_species';
   select deactivated_at into original_deactivated_at
   from public.species where id = p_id for update;
   if not found then
-    raise exception using errcode = 'PT404', message = 'Species not found.';
+    raise exception using
+      errcode = 'PT404',
+      message = 'Species not found.',
+      hint = 'wrt:species_not_found';
   end if;
 
   if original_deactivated_at is not null then
@@ -362,13 +400,17 @@ exception when others then
   get stacked diagnostics
     failed_constraint = constraint_name,
     failed_table = table_name,
-    failed_column = column_name;
-  -- Preserve the original SQLSTATE and rollback; never log supplied values,
-  -- exception messages/details or SQL context.
+    failed_column = column_name,
+    failed_hint = pg_exception_hint,
+    exception_context = pg_exception_context;
+  -- Keep the original error and its stack. Raw messages/details can contain
+  -- rejected row values; only the fixed hint and exception context are logged.
   raise log '%', log_context || jsonb_build_object(
     'timestamp', clock_timestamp(), 'level', 'error',
     'event', 'database.function.failed', 'stage', stage,
     'database_code', sqlstate,
+    'reason', case when left(failed_hint, 4) = 'wrt:' then substr(failed_hint, 5) else null end,
+    'exception_context', exception_context,
     'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
     'column', nullif(failed_column, ''),
     'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)

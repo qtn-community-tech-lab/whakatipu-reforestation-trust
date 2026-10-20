@@ -1,9 +1,11 @@
 import { throwDatabaseError } from "./http.ts";
+import type { DatabaseError } from "./http.ts";
+import { exceptionLogFields } from "./logging.ts";
 import type { RequestLog } from "./logging.ts";
 
 type DatabaseResult<T> =
   | { data: T; error: null }
-  | { data: null; error: { code: string } };
+  | { data: null; error: DatabaseError };
 
 // Keep the SDK's typed query/result at each call site, but handle every database
 // boundary consistently, including exceptions that do not arrive as SDK errors.
@@ -18,10 +20,9 @@ export async function queryDatabase<T>(
   try {
     result = await execute();
   } catch (error) {
-    // Error messages, causes and stacks can contain URLs or supplied values.
     log("database.exception", {
       database_operation: operation,
-      error_type: error instanceof Error ? error.name : "UnknownError",
+      ...exceptionLogFields(error),
       duration_ms: Math.round(performance.now() - started),
     }, "error");
     throw error;

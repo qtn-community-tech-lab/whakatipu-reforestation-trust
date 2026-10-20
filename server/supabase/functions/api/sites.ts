@@ -123,7 +123,9 @@ export async function getSite(
   );
   if (data === null) {
     log("sites.get.not_found", { site_id: id }, "warn");
-    throw new HttpError(404, "not_found", "Site not found.");
+    throw new HttpError(404, "not_found", "Site not found.", {
+      reason: "site_not_found",
+    });
   }
   const response = siteResponse(data);
   log("sites.get.completed", {

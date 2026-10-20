@@ -128,7 +128,9 @@ export async function getPlantingArea(
   );
   if (data === null) {
     log("planting_areas.get.not_found", { planting_area_id: id }, "warn");
-    throw new HttpError(404, "not_found", "Planting area not found.");
+    throw new HttpError(404, "not_found", "Planting area not found.", {
+      reason: "planting_area_not_found",
+    });
   }
   const response = areaResponse(data);
   log("planting_areas.get.completed", {

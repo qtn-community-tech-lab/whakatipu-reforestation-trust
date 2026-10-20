@@ -95,7 +95,9 @@ export async function getPlantingEvent(
         .overrideTypes<PlantingEventDetailRows, { merge: false }>(),
   );
   if (data === null) {
-    throw new HttpError(404, "not_found", "Planting event not found.");
+    throw new HttpError(404, "not_found", "Planting event not found.", {
+      reason: "planting_event_not_found",
+    });
   }
   const response = eventResponse(data);
   log("planting_events.get.completed", {

@@ -444,6 +444,7 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           }),
           409,
           "conflict",
+          "area_site_mismatch",
         );
         saved = await update(saved, {
           ...input,
@@ -549,6 +550,7 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           await request(`/planting-events/${saved.id}`, "PUT", unsafe),
           409,
           "conflict",
+          "aggregate_out_of_range",
         );
         deepStrictEqual(await get(saved.id), saved);
         const failed = {
@@ -559,6 +561,7 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           await request("/planting-events", "POST", failed),
           409,
           "conflict",
+          "aggregate_out_of_range",
         );
         const retry = await create({ ...failed, species: [] });
         const exact = await update(retry, {
@@ -610,6 +613,7 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           }),
           409,
           "conflict",
+          "inactive_species",
         );
         await expectError(
           await request(`/planting-events/${saved.id}`, "PUT", {
@@ -698,6 +702,7 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           }),
           409,
           "conflict",
+          "inactive_area",
         );
         await expectError(
           await request(`/planting-events/${saved.id}`, "PUT", {

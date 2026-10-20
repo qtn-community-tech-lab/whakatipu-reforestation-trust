@@ -17,7 +17,7 @@ import type {
 import type { Database } from "./database.types.ts";
 import { readAllowedOrigins } from "./config.ts";
 import { HttpError, readJson } from "./http.ts";
-import { createRequestLog } from "./logging.ts";
+import { createRequestLog, exceptionLogFields } from "./logging.ts";
 import type { RequestLog } from "./logging.ts";
 import {
   createSpecies,
@@ -101,15 +101,23 @@ export function createApp() {
       500,
       "internal_error",
       "The request could not be completed.",
+      { cause: error },
     );
     c.set("errorCode", failure.code);
     c.get("log")("request.failed", {
       status: failure.status,
       error_code: failure.code,
-      error_type: error.name,
+      reason: failure.reason,
+      ...exceptionLogFields(failure),
     }, failure.status >= 500 ? "error" : "warn");
     const body: ErrorResponse = {
-      error: { code: failure.code, message: failure.message },
+      error: {
+        code: failure.code,
+        message: failure.message,
+        reason: failure.reason,
+        request_id: c.get("requestId"),
+        ...(failure.fields === undefined ? {} : { fields: failure.fields }),
+      },
     };
     return c.json(body, failure.status);
   });
@@ -137,12 +145,14 @@ export function createApp() {
     );
     if (error) {
       log("database.context.failed", {
+        ...exceptionLogFields(error),
         duration_ms: Math.round(performance.now() - started),
       }, "error");
       throw new HttpError(
         500,
         "internal_error",
         "Server configuration is unavailable.",
+        { reason: "server_configuration_unavailable", cause: error },
       );
     }
     c.set("db", context.supabaseAdmin);
@@ -189,11 +199,15 @@ export function createApp() {
 
   app.all("/species", (c) => {
     c.header("Allow", "GET, HEAD, POST, OPTIONS");
-    throw new HttpError(405, "validation_error", "Method not allowed.");
+    throw new HttpError(405, "validation_error", "Method not allowed.", {
+      reason: "method_not_allowed",
+    });
   });
   app.all("/species/:id", (c) => {
     c.header("Allow", "GET, HEAD, PUT, DELETE, OPTIONS");
-    throw new HttpError(405, "validation_error", "Method not allowed.");
+    throw new HttpError(405, "validation_error", "Method not allowed.", {
+      reason: "method_not_allowed",
+    });
   });
   app.get(
     "/sites",
@@ -232,11 +246,15 @@ export function createApp() {
 
   app.all("/sites", (c) => {
     c.header("Allow", "GET, HEAD, POST, OPTIONS");
-    throw new HttpError(405, "validation_error", "Method not allowed.");
+    throw new HttpError(405, "validation_error", "Method not allowed.", {
+      reason: "method_not_allowed",
+    });
   });
   app.all("/sites/:id", (c) => {
     c.header("Allow", "GET, HEAD, PUT, DELETE, OPTIONS");
-    throw new HttpError(405, "validation_error", "Method not allowed.");
+    throw new HttpError(405, "validation_error", "Method not allowed.", {
+      reason: "method_not_allowed",
+    });
   });
   app.get(
     "/planting-areas",
@@ -277,11 +295,15 @@ export function createApp() {
 
   app.all("/planting-areas", (c) => {
     c.header("Allow", "GET, HEAD, POST, OPTIONS");
-    throw new HttpError(405, "validation_error", "Method not allowed.");
+    throw new HttpError(405, "validation_error", "Method not allowed.", {
+      reason: "method_not_allowed",
+    });
   });
   app.all("/planting-areas/:id", (c) => {
     c.header("Allow", "GET, HEAD, PUT, DELETE, OPTIONS");
-    throw new HttpError(405, "validation_error", "Method not allowed.");
+    throw new HttpError(405, "validation_error", "Method not allowed.", {
+      reason: "method_not_allowed",
+    });
   });
   app.get(
     "/planting-events",
@@ -327,20 +349,21 @@ export function createApp() {
   });
   app.all("/planting-events", (c) => {
     c.header("Allow", "GET, HEAD, POST, OPTIONS");
-    throw new HttpError(405, "validation_error", "Method not allowed.");
+    throw new HttpError(405, "validation_error", "Method not allowed.", {
+      reason: "method_not_allowed",
+    });
   });
   app.all("/planting-events/:id", (c) => {
     c.header("Allow", "GET, HEAD, PUT, DELETE, OPTIONS");
-    throw new HttpError(405, "validation_error", "Method not allowed.");
+    throw new HttpError(405, "validation_error", "Method not allowed.", {
+      reason: "method_not_allowed",
+    });
   });
-  app.notFound((c) =>
-    c.json(
-      {
-        error: { code: "not_found", message: "Route not found." },
-      } satisfies ErrorResponse,
-      404,
-    )
-  );
+  app.notFound(() => {
+    throw new HttpError(404, "not_found", "Route not found.", {
+      reason: "route_not_found",
+    });
+  });
 
   return app;
 }

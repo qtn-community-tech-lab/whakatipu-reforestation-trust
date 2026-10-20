@@ -36,11 +36,24 @@ export async function expectError(
   response: Response,
   status: number,
   code: string,
+  reason?: string,
 ): Promise<void> {
   const body = await readJson<ErrorResponse>(response, status);
   deepStrictEqual(Object.keys(body), ["error"]);
-  deepStrictEqual(Object.keys(body.error).sort(), ["code", "message"]);
+  const keys = ["code", "message", "reason", "request_id"];
+  if (body.error.fields !== undefined) keys.push("fields");
+  deepStrictEqual(Object.keys(body.error).sort(), keys.sort());
   strictEqual(body.error.code, code);
+  match(body.error.reason, /^[a-z][a-z0-9_]*$/);
+  strictEqual(body.error.request_id, response.headers.get("X-Request-ID"));
+  if (reason !== undefined) strictEqual(body.error.reason, reason);
+  if (body.error.fields !== undefined) {
+    for (const message of Object.values(body.error.fields)) {
+      strictEqual(typeof message, "string");
+      ok(message.length > 0);
+      ok(!/SQL|constraint|stack|postgres|PL\/pgSQL/i.test(message));
+    }
+  }
   ok(body.error.message.length > 0);
   ok(!/SQL|constraint|stack|postgres|PL\/pgSQL/i.test(body.error.message));
 }
