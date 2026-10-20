@@ -54,6 +54,7 @@ type AppEnv = {
   Variables: {
     db: SupabaseClient<Database>;
     log: RequestLog;
+    requestId: string;
     errorCode: string | undefined;
   };
 };
@@ -67,6 +68,7 @@ export function createApp() {
     const requestId = crypto.randomUUID();
     const log = createRequestLog(requestId, c.req.method, c.req.path);
     c.set("log", log);
+    c.set("requestId", requestId);
     c.header("X-Request-ID", requestId);
     c.header("Cache-Control", "private, no-store");
     log("request.started");
@@ -119,7 +121,19 @@ export function createApp() {
     // Supported typed context API; the SDK's old framework adapters are deprecated.
     const { data: context, error } = await createSupabaseContext<Database>(
       c.req.raw,
-      { auth: "none" },
+      {
+        auth: "none",
+        // PostgREST exposes this trusted ID to SQL through request.headers.
+        supabaseOptions: {
+          global: {
+            headers: {
+              "X-Request-ID": c.get("requestId"),
+              "X-WRT-Request-Method": c.req.method,
+              "X-WRT-Request-Path": c.req.path,
+            },
+          },
+        },
+      },
     );
     if (error) {
       log("database.context.failed", {

@@ -12,7 +12,8 @@ import type {
 } from "./database.types.ts";
 import { plantingEventListResponse } from "./responses.ts";
 import { DEVELOPMENT_ACTOR_ID } from "./config.ts";
-import { HttpError, throwDatabaseError } from "./http.ts";
+import { HttpError } from "./http.ts";
+import { queryDatabase } from "./database.ts";
 import type { RequestLog } from "./logging.ts";
 
 function eventResponse(result: PlantingEventDetailRows): PlantingEventResponse {
@@ -60,9 +61,13 @@ export async function listPlantingEvents(
 ): Promise<PlantingEventListResponse[]> {
   const started = performance.now();
   log("planting_events.list.started", { rpc: "planting_event_list" });
-  const { data, error } = await db.rpc("planting_event_list").single()
-    .overrideTypes<{ events: SpeciesEventRow[] }, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "planting_event_list",
+    log,
+    () =>
+      db.rpc("planting_event_list").single()
+        .overrideTypes<{ events: SpeciesEventRow[] }, { merge: false }>(),
+  );
   const response = data.events.map(plantingEventListResponse);
   log("planting_events.list.completed", {
     row_count: response.length,
@@ -81,10 +86,14 @@ export async function getPlantingEvent(
     planting_event_id: id,
     rpc: "planting_event_get",
   });
-  const { data, error } = await db.rpc("planting_event_get", { p_id: id })
-    .maybeSingle()
-    .overrideTypes<PlantingEventDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "planting_event_get",
+    log,
+    () =>
+      db.rpc("planting_event_get", { p_id: id })
+        .maybeSingle()
+        .overrideTypes<PlantingEventDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     throw new HttpError(404, "not_found", "Planting event not found.");
   }
@@ -111,26 +120,30 @@ export async function savePlantingEvent(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "planting_event_save",
   });
-  const { data, error } = await db.rpc("planting_event_save", {
-    p_create: create,
-    p_id: id,
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_site_id: body.site_id,
-    // The generated RPC text argument cannot express null; SQL maps empty text to null.
-    p_planting_area_id: body.planting_area_id ?? "",
-    p_planting_date: body.planting_date,
-    p_event_type: body.event_type,
-    p_season: body.season,
-    p_notes: body.notes,
-    p_image_url: body.image_url,
-    p_is_public: body.is_public,
-    p_species: body.species.map((line) => ({
-      id: line.id ?? generateUniqueID(IdPrefixes.PLANTING_EVENT_SPECIES),
-      species_id: line.species_id,
-      quantity: line.quantity,
-    })),
-  }).single().overrideTypes<PlantingEventDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "planting_event_save",
+    log,
+    () =>
+      db.rpc("planting_event_save", {
+        p_create: create,
+        p_id: id,
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+        p_site_id: body.site_id,
+        // The generated RPC text argument cannot express null; SQL maps empty text to null.
+        p_planting_area_id: body.planting_area_id ?? "",
+        p_planting_date: body.planting_date,
+        p_event_type: body.event_type,
+        p_season: body.season,
+        p_notes: body.notes,
+        p_image_url: body.image_url,
+        p_is_public: body.is_public,
+        p_species: body.species.map((line) => ({
+          id: line.id ?? generateUniqueID(IdPrefixes.PLANTING_EVENT_SPECIES),
+          species_id: line.species_id,
+          quantity: line.quantity,
+        })),
+      }).single().overrideTypes<PlantingEventDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     throw new HttpError(
       500,
@@ -158,11 +171,15 @@ export async function deactivatePlantingEvent(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "planting_event_deactivate",
   });
-  const { error } = await db.rpc("planting_event_deactivate", {
-    p_id: id,
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-  });
-  if (error) throwDatabaseError(error, log, started);
+  await queryDatabase(
+    "planting_event_deactivate",
+    log,
+    () =>
+      db.rpc("planting_event_deactivate", {
+        p_id: id,
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+      }),
+  );
   log("planting_events.deactivate.completed", {
     planting_event_id: id,
     duration_ms: Math.round(performance.now() - started),

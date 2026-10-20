@@ -21,7 +21,25 @@ set timezone = 'UTC'
 as $$
 declare
   result public.planting_area_detail_rows;
+  stage text := 'read_detail';
+  started_at timestamptz := clock_timestamp();
+  request_headers jsonb := nullif(current_setting('request.headers', true), '')::jsonb;
+  log_context jsonb;
+  failed_constraint text;
+  failed_table text;
+  failed_column text;
 begin
+  log_context := jsonb_build_object(
+    'rpc', 'planting_area_get', 'request_id', request_headers ->> 'x-request-id',
+    'method', request_headers ->> 'x-wrt-request-method',
+    'path', request_headers ->> 'x-wrt-request-path',
+    'planting_area_id', p_id
+  );
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.started', 'stage', stage
+  );
+
   -- One statement gives all collections and totals the same read snapshot.
   -- Array columns avoid truncation at the Data API's top-level row limit.
   with matching_events as materialized (
@@ -70,7 +88,16 @@ begin
     on location.id = area.location_id and location.deactivated_at is null
   where area.id = p_id and area.deactivated_at is null;
 
-  if not found then return; end if;
+  if not found then
+    raise log '%', log_context || jsonb_build_object(
+      'timestamp', clock_timestamp(), 'level', 'info',
+      'event', 'database.function.completed', 'stage', stage,
+      'outcome', 'not_found',
+      'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+    );
+    return;
+  end if;
+  stage := 'check_aggregates';
   -- Reject unsafe numbers before the Data API converts numeric values to JSON.
   if result.total_plants > 9007199254740991
     or result.planting_event_count > 9007199254740991
@@ -78,6 +105,28 @@ begin
     raise sqlstate 'PT409' using message = 'Aggregate exceeds the safe integer range.';
   end if;
   return next result;
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.completed', 'stage', stage,
+    'outcome', 'success',
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+exception when others then
+  get stacked diagnostics
+    failed_constraint = constraint_name,
+    failed_table = table_name,
+    failed_column = column_name;
+  -- Preserve the original SQLSTATE and rollback; never log supplied values,
+  -- exception messages/details or SQL context.
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'error',
+    'event', 'database.function.failed', 'stage', stage,
+    'database_code', sqlstate,
+    'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
+    'column', nullif(failed_column, ''),
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+  raise;
 end;
 $$;
 
@@ -90,24 +139,73 @@ language plpgsql security invoker
 set search_path = ''
 set timezone = 'UTC'
 as $$
+declare
+  stage text := 'audit_actor';
+  started_at timestamptz := clock_timestamp();
+  request_headers jsonb := nullif(current_setting('request.headers', true), '')::jsonb;
+  log_context jsonb;
+  failed_constraint text;
+  failed_table text;
+  failed_column text;
 begin
+  log_context := jsonb_build_object(
+    'rpc', 'planting_area_create', 'request_id', request_headers ->> 'x-request-id',
+    'method', request_headers ->> 'x-wrt-request-method',
+    'path', request_headers ->> 'x-wrt-request-path',
+    'planting_area_id', p_id, 'actor_id', p_actor_id
+  );
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.started', 'stage', stage
+  );
+
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
-  if not found then raise sqlstate 'PT500' using message = 'Audit actor unavailable.'; end if;
+  if not found then
+    raise sqlstate 'PT500' using message = 'Audit actor unavailable.';
+  end if;
   -- Parent locks precede area/location locks and prevent racing site deletion.
+  stage := 'lock_site';
   perform 1 from public.sites where id = p_site_id and deactivated_at is null for share;
-  if not found then raise sqlstate 'PT409' using message = 'Site unavailable.'; end if;
+  if not found then
+    raise sqlstate 'PT409' using message = 'Site unavailable.';
+  end if;
 
   -- A new supplied location ID must be unused, including historical rows and
   -- locations owned by sites. The primary key arbitrates concurrent claims.
+  stage := 'save_location';
   if p_geometry is not null then
     insert into public.locations (id, created_by, updated_by, geometry)
     values (p_location_id, p_actor_id, p_actor_id, p_geometry);
   end if;
+  stage := 'save_area';
   insert into public.planting_areas
     (id, created_by, updated_by, site_id, name, description, is_public, location_id)
   values (p_id, p_actor_id, p_actor_id, p_site_id, p_name, p_description, p_is_public,
     case when p_geometry is null then null else p_location_id end);
+  stage := 'read_saved_detail';
   return query select * from public.planting_area_get(p_id);
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.completed', 'stage', stage,
+    'outcome', 'success',
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+exception when others then
+  get stacked diagnostics
+    failed_constraint = constraint_name,
+    failed_table = table_name,
+    failed_column = column_name;
+  -- Preserve the original SQLSTATE and rollback; never log supplied values,
+  -- exception messages/details or SQL context.
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'error',
+    'event', 'database.function.failed', 'stage', stage,
+    'database_code', sqlstate,
+    'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
+    'column', nullif(failed_column, ''),
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+  raise;
 end;
 $$;
 
@@ -124,20 +222,49 @@ declare
   saved public.planting_areas;
   parent_id text;
   changed_at timestamptz;
+  stage text := 'audit_actor';
+  started_at timestamptz := clock_timestamp();
+  request_headers jsonb := nullif(current_setting('request.headers', true), '')::jsonb;
+  log_context jsonb;
+  failed_constraint text;
+  failed_table text;
+  failed_column text;
 begin
+  log_context := jsonb_build_object(
+    'rpc', 'planting_area_update', 'request_id', request_headers ->> 'x-request-id',
+    'method', request_headers ->> 'x-wrt-request-method',
+    'path', request_headers ->> 'x-wrt-request-path',
+    'planting_area_id', p_id, 'actor_id', p_actor_id
+  );
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.started', 'stage', stage
+  );
+
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
-  if not found then raise sqlstate 'PT500' using message = 'Audit actor unavailable.'; end if;
+  if not found then
+    raise sqlstate 'PT500' using message = 'Audit actor unavailable.';
+  end if;
+  stage := 'lock_site';
   select site_id into parent_id from public.planting_areas where id = p_id;
   perform 1 from public.sites where id = parent_id and deactivated_at is null for share;
-  if not found then raise sqlstate 'PT404' using message = 'Planting area not found.'; end if;
+  if not found then
+    raise sqlstate 'PT404' using message = 'Planting area not found.';
+  end if;
+  stage := 'lock_area';
   select * into saved from public.planting_areas where id = p_id and deactivated_at is null for update;
-  if not found then raise sqlstate 'PT404' using message = 'Planting area not found.'; end if;
+  if not found then
+    raise sqlstate 'PT404' using message = 'Planting area not found.';
+  end if;
+  stage := 'check_parent';
   if p_site_id is distinct from saved.site_id then
     raise sqlstate 'PT409' using message = 'The parent site cannot change.';
   end if;
+  stage := 'lock_location';
   perform 1 from public.locations where id = saved.location_id for update;
   changed_at := clock_timestamp();
 
+  stage := 'save_location';
   if p_geometry is null then
     update public.locations set deactivated_at = changed_at, updated_at = changed_at, updated_by = p_actor_id
     where id = saved.location_id and deactivated_at is null;
@@ -150,11 +277,35 @@ begin
     update public.locations set deactivated_at = changed_at, updated_at = changed_at, updated_by = p_actor_id
     where id = saved.location_id and deactivated_at is null;
   end if;
+  stage := 'save_area';
   update public.planting_areas set name = p_name, description = p_description, is_public = p_is_public,
     location_id = case when p_geometry is null then null else p_location_id end,
     updated_at = changed_at, updated_by = p_actor_id
   where id = p_id;
+  stage := 'read_saved_detail';
   return query select * from public.planting_area_get(p_id);
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.completed', 'stage', stage,
+    'outcome', 'success',
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+exception when others then
+  get stacked diagnostics
+    failed_constraint = constraint_name,
+    failed_table = table_name,
+    failed_column = column_name;
+  -- Preserve the original SQLSTATE and rollback; never log supplied values,
+  -- exception messages/details or SQL context.
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'error',
+    'event', 'database.function.failed', 'stage', stage,
+    'database_code', sqlstate,
+    'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
+    'column', nullif(failed_column, ''),
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+  raise;
 end;
 $$;
 
@@ -168,22 +319,81 @@ declare
   saved public.planting_areas;
   parent_id text;
   changed_at timestamptz;
+  stage text := 'audit_actor';
+  started_at timestamptz := clock_timestamp();
+  request_headers jsonb := nullif(current_setting('request.headers', true), '')::jsonb;
+  log_context jsonb;
+  failed_constraint text;
+  failed_table text;
+  failed_column text;
 begin
+  log_context := jsonb_build_object(
+    'rpc', 'planting_area_deactivate', 'request_id', request_headers ->> 'x-request-id',
+    'method', request_headers ->> 'x-wrt-request-method',
+    'path', request_headers ->> 'x-wrt-request-path',
+    'planting_area_id', p_id, 'actor_id', p_actor_id
+  );
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.started', 'stage', stage
+  );
+
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
-  if not found then raise sqlstate 'PT500' using message = 'Audit actor unavailable.'; end if;
+  if not found then
+    raise sqlstate 'PT500' using message = 'Audit actor unavailable.';
+  end if;
+  stage := 'lock_site';
   select site_id into parent_id from public.planting_areas where id = p_id;
   perform 1 from public.sites where id = parent_id and deactivated_at is null for share;
-  if not found then raise sqlstate 'PT404' using message = 'Planting area not found.'; end if;
+  if not found then
+    raise sqlstate 'PT404' using message = 'Planting area not found.';
+  end if;
+  stage := 'lock_area';
   select * into saved from public.planting_areas where id = p_id for update;
-  if not found then raise sqlstate 'PT404' using message = 'Planting area not found.'; end if;
-  if saved.deactivated_at is not null then return; end if;
+  if not found then
+    raise sqlstate 'PT404' using message = 'Planting area not found.';
+  end if;
+  if saved.deactivated_at is not null then
+    raise log '%', log_context || jsonb_build_object(
+      'timestamp', clock_timestamp(), 'level', 'info',
+      'event', 'database.function.completed', 'stage', stage,
+      'outcome', 'already_inactive',
+      'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+    );
+    return;
+  end if;
+  stage := 'lock_location';
   perform 1 from public.locations where id = saved.location_id for update;
   changed_at := clock_timestamp();
+  stage := 'deactivate_location';
   update public.locations set deactivated_at = changed_at, updated_at = changed_at, updated_by = p_actor_id
   where id = saved.location_id and deactivated_at is null;
+  stage := 'deactivate_area';
   update public.planting_areas set deactivated_at = changed_at, updated_at = changed_at, updated_by = p_actor_id
   where id = p_id;
   -- Retain the location FK and event links for history.
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.completed', 'stage', stage,
+    'outcome', 'success',
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+exception when others then
+  get stacked diagnostics
+    failed_constraint = constraint_name,
+    failed_table = table_name,
+    failed_column = column_name;
+  -- Preserve the original SQLSTATE and rollback; never log supplied values,
+  -- exception messages/details or SQL context.
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'error',
+    'event', 'database.function.failed', 'stage', stage,
+    'database_code', sqlstate,
+    'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
+    'column', nullif(failed_column, ''),
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+  raise;
 end;
 $$;
 

@@ -13,7 +13,8 @@ import type {
 import { plantingEventListResponse } from "./responses.ts";
 import { generateUniqueID, IdPrefixes } from "../_shared/ids.ts";
 import { DEVELOPMENT_ACTOR_ID } from "./config.ts";
-import { HttpError, throwDatabaseError } from "./http.ts";
+import { HttpError } from "./http.ts";
+import { queryDatabase } from "./database.ts";
 import type { RequestLog } from "./logging.ts";
 
 function speciesListResponse(row: SpeciesRow): SpeciesListResponse {
@@ -53,11 +54,15 @@ export async function listSpecies(
   while (true) {
     const queryStarted = performance.now();
     log("species.list.batch.started", { offset, batch_size: 500 });
-    const { data, error } = await db.from("species").select("*")
-      .is("deactivated_at", null)
-      .order("scientific_name").order("id")
-      .range(offset, offset + 499);
-    if (error) throwDatabaseError(error, log, queryStarted);
+    const data = await queryDatabase(
+      "species.list.batch",
+      log,
+      () =>
+        db.from("species").select("*")
+          .is("deactivated_at", null)
+          .order("scientific_name").order("id")
+          .range(offset, offset + 499),
+    );
     log("species.list.batch.completed", {
       offset,
       row_count: data.length,
@@ -83,9 +88,13 @@ export async function getSpecies(
 ): Promise<SpeciesResponse> {
   const started = performance.now();
   log("species.get.started", { species_id: id, rpc: "species_get" });
-  const { data, error } = await db.rpc("species_get", { p_id: id })
-    .maybeSingle().overrideTypes<SpeciesDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "species_get",
+    log,
+    () =>
+      db.rpc("species_get", { p_id: id })
+        .maybeSingle().overrideTypes<SpeciesDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     log("species.get.not_found", { species_id: id }, "warn");
     throw new HttpError(404, "not_found", "Species not found.");
@@ -123,12 +132,16 @@ export async function createSpecies(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "species_create",
   });
-  const { data, error } = await db.rpc("species_create", {
-    ...editableArguments(body),
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_id: id,
-  }).single().overrideTypes<SpeciesDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "species_create",
+    log,
+    () =>
+      db.rpc("species_create", {
+        ...editableArguments(body),
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+        p_id: id,
+      }).single().overrideTypes<SpeciesDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     log("species.create.empty_result", { species_id: id }, "error");
     throw new HttpError(
@@ -158,12 +171,16 @@ export async function updateSpecies(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "species_update",
   });
-  const { data, error } = await db.rpc("species_update", {
-    ...editableArguments(body),
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_id: id,
-  }).single().overrideTypes<SpeciesDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "species_update",
+    log,
+    () =>
+      db.rpc("species_update", {
+        ...editableArguments(body),
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+        p_id: id,
+      }).single().overrideTypes<SpeciesDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     log("species.update.empty_result", { species_id: id }, "error");
     throw new HttpError(
@@ -192,11 +209,15 @@ export async function deactivateSpecies(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "species_deactivate",
   });
-  const { error } = await db.rpc("species_deactivate", {
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_id: id,
-  });
-  if (error) throwDatabaseError(error, log, started);
+  await queryDatabase(
+    "species_deactivate",
+    log,
+    () =>
+      db.rpc("species_deactivate", {
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+        p_id: id,
+      }),
+  );
   // The RPC is idempotent; this does not imply a new deactivation timestamp.
   log("species.deactivate.completed", {
     species_id: id,

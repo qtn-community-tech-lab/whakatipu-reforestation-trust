@@ -13,7 +13,8 @@ import type {
 import { plantingEventListResponse, position } from "./responses.ts";
 import { generateUniqueID, IdPrefixes } from "../_shared/ids.ts";
 import { DEVELOPMENT_ACTOR_ID } from "./config.ts";
-import { HttpError, throwDatabaseError } from "./http.ts";
+import { HttpError } from "./http.ts";
+import { queryDatabase } from "./database.ts";
 import type { RequestLog } from "./logging.ts";
 
 function siteListResponse(row: SiteListRow): SiteListResponse {
@@ -76,14 +77,18 @@ export async function listSites(
   while (true) {
     const queryStarted = performance.now();
     log("sites.list.batch.started", { offset, batch_size: 500 });
-    const { data, error } = await db.from("sites").select(
-      "*, location:locations!sites_location_id_fkey(id, geometry, deactivated_at)",
-    )
-      .is("deactivated_at", null)
-      .order("name").order("id")
-      .range(offset, offset + 499)
-      .overrideTypes<SiteListRow[], { merge: false }>();
-    if (error) throwDatabaseError(error, log, queryStarted);
+    const data = await queryDatabase(
+      "sites.list.batch",
+      log,
+      () =>
+        db.from("sites").select(
+          "*, location:locations!sites_location_id_fkey(id, geometry, deactivated_at)",
+        )
+          .is("deactivated_at", null)
+          .order("name").order("id")
+          .range(offset, offset + 499)
+          .overrideTypes<SiteListRow[], { merge: false }>(),
+    );
     log("sites.list.batch.completed", {
       offset,
       row_count: data.length,
@@ -109,9 +114,13 @@ export async function getSite(
 ): Promise<SiteResponse> {
   const started = performance.now();
   log("sites.get.started", { site_id: id, rpc: "site_get" });
-  const { data, error } = await db.rpc("site_get", { p_id: id })
-    .maybeSingle().overrideTypes<SiteDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "site_get",
+    log,
+    () =>
+      db.rpc("site_get", { p_id: id })
+        .maybeSingle().overrideTypes<SiteDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     log("sites.get.not_found", { site_id: id }, "warn");
     throw new HttpError(404, "not_found", "Site not found.");
@@ -149,12 +158,16 @@ export async function createSite(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "site_create",
   });
-  const { data, error } = await db.rpc("site_create", {
-    ...editableArguments(body),
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_id: id,
-  }).single().overrideTypes<SiteDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "site_create",
+    log,
+    () =>
+      db.rpc("site_create", {
+        ...editableArguments(body),
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+        p_id: id,
+      }).single().overrideTypes<SiteDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     log("sites.create.empty_result", { site_id: id }, "error");
     throw new HttpError(
@@ -184,12 +197,16 @@ export async function updateSite(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "site_update",
   });
-  const { data, error } = await db.rpc("site_update", {
-    ...editableArguments(body),
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_id: id,
-  }).single().overrideTypes<SiteDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "site_update",
+    log,
+    () =>
+      db.rpc("site_update", {
+        ...editableArguments(body),
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+        p_id: id,
+      }).single().overrideTypes<SiteDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     log("sites.update.empty_result", { site_id: id }, "error");
     throw new HttpError(
@@ -218,11 +235,11 @@ export async function deactivateSite(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "site_deactivate",
   });
-  const { error } = await db.rpc("site_deactivate", {
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_id: id,
-  });
-  if (error) throwDatabaseError(error, log, started);
+  await queryDatabase("site_deactivate", log, () =>
+    db.rpc("site_deactivate", {
+      p_actor_id: DEVELOPMENT_ACTOR_ID,
+      p_id: id,
+    }));
   // The RPC is idempotent; this does not imply a new deactivation timestamp.
   log("sites.deactivate.completed", {
     site_id: id,

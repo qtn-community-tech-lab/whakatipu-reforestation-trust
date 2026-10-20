@@ -54,7 +54,25 @@ set timezone = 'UTC'
 as $$
 declare
   result public.species_detail_rows;
+  stage text := 'read_detail';
+  started_at timestamptz := clock_timestamp();
+  request_headers jsonb := nullif(current_setting('request.headers', true), '')::jsonb;
+  log_context jsonb;
+  failed_constraint text;
+  failed_table text;
+  failed_column text;
 begin
+  log_context := jsonb_build_object(
+    'rpc', 'species_get', 'request_id', request_headers ->> 'x-request-id',
+    'method', request_headers ->> 'x-wrt-request-method',
+    'path', request_headers ->> 'x-wrt-request-path',
+    'species_id', p_id
+  );
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.started', 'stage', stage
+  );
+
   -- One statement keeps the saved row, history and aggregates in one snapshot.
   -- An array column keeps complete history outside the Data API's row cap.
   with matching_events as materialized (
@@ -95,8 +113,15 @@ begin
   where s.id = p_id and s.deactivated_at is null;
 
   if not found then
+    raise log '%', log_context || jsonb_build_object(
+      'timestamp', clock_timestamp(), 'level', 'info',
+      'event', 'database.function.completed', 'stage', stage,
+      'outcome', 'not_found',
+      'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+    );
     return;
   end if;
+  stage := 'check_aggregates';
   -- Reject before numeric values reach JavaScript; a failed save rolls back too.
   if result.total_plants > 9007199254740991
     or result.planting_event_count > 9007199254740991
@@ -105,6 +130,28 @@ begin
     raise exception using errcode = 'PT409', message = 'Planting total exceeds the supported integer range.';
   end if;
   return next result;
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.completed', 'stage', stage,
+    'outcome', 'success',
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+exception when others then
+  get stacked diagnostics
+    failed_constraint = constraint_name,
+    failed_table = table_name,
+    failed_column = column_name;
+  -- Preserve the original SQLSTATE and rollback; never log supplied values,
+  -- exception messages/details or SQL context.
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'error',
+    'event', 'database.function.failed', 'stage', stage,
+    'database_code', sqlstate,
+    'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
+    'column', nullif(failed_column, ''),
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+  raise;
 end;
 $$;
 
@@ -117,7 +164,26 @@ language plpgsql
 security invoker
 set search_path = ''
 as $$
+declare
+  stage text := 'audit_actor';
+  started_at timestamptz := clock_timestamp();
+  request_headers jsonb := nullif(current_setting('request.headers', true), '')::jsonb;
+  log_context jsonb;
+  failed_constraint text;
+  failed_table text;
+  failed_column text;
 begin
+  log_context := jsonb_build_object(
+    'rpc', 'species_create', 'request_id', request_headers ->> 'x-request-id',
+    'method', request_headers ->> 'x-wrt-request-method',
+    'path', request_headers ->> 'x-wrt-request-path',
+    'species_id', p_id, 'actor_id', p_actor_id
+  );
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.started', 'stage', stage
+  );
+
   -- The fixed development actor is replaced by a verified actor when auth arrives.
   -- SHARE permits concurrent saves but prevents actor deactivation during a save.
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
@@ -125,6 +191,7 @@ begin
     raise exception using errcode = 'PT500', message = 'Development audit user is missing or inactive.';
   end if;
 
+  stage := 'save_species';
   insert into public.species (
     id, scientific_name, common_name, aliases, description, image_url, is_public,
     created_by, updated_by
@@ -132,7 +199,30 @@ begin
     p_id, p_scientific_name, p_common_name, p_aliases, p_description, p_image_url, p_is_public,
     p_actor_id, p_actor_id
   );
+  stage := 'read_saved_detail';
   return query select * from public.species_get(p_id);
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.completed', 'stage', stage,
+    'outcome', 'success',
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+exception when others then
+  get stacked diagnostics
+    failed_constraint = constraint_name,
+    failed_table = table_name,
+    failed_column = column_name;
+  -- Preserve the original SQLSTATE and rollback; never log supplied values,
+  -- exception messages/details or SQL context.
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'error',
+    'event', 'database.function.failed', 'stage', stage,
+    'database_code', sqlstate,
+    'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
+    'column', nullif(failed_column, ''),
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+  raise;
 end;
 $$;
 
@@ -145,22 +235,66 @@ language plpgsql
 security invoker
 set search_path = ''
 as $$
+declare
+  stage text := 'audit_actor';
+  started_at timestamptz := clock_timestamp();
+  request_headers jsonb := nullif(current_setting('request.headers', true), '')::jsonb;
+  log_context jsonb;
+  failed_constraint text;
+  failed_table text;
+  failed_column text;
 begin
+  log_context := jsonb_build_object(
+    'rpc', 'species_update', 'request_id', request_headers ->> 'x-request-id',
+    'method', request_headers ->> 'x-wrt-request-method',
+    'path', request_headers ->> 'x-wrt-request-path',
+    'species_id', p_id, 'actor_id', p_actor_id
+  );
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.started', 'stage', stage
+  );
+
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
   if not found then
     raise exception using errcode = 'PT500', message = 'Development audit user is missing or inactive.';
   end if;
+  stage := 'lock_species';
   perform 1 from public.species where id = p_id and deactivated_at is null for update;
   if not found then
     raise exception using errcode = 'PT404', message = 'Species not found.';
   end if;
 
+  stage := 'save_species';
   update public.species set
     scientific_name = p_scientific_name, common_name = p_common_name,
     aliases = p_aliases, description = p_description, image_url = p_image_url,
     is_public = p_is_public, updated_by = p_actor_id, updated_at = clock_timestamp()
   where id = p_id;
+  stage := 'read_saved_detail';
   return query select * from public.species_get(p_id);
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.completed', 'stage', stage,
+    'outcome', 'success',
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+exception when others then
+  get stacked diagnostics
+    failed_constraint = constraint_name,
+    failed_table = table_name,
+    failed_column = column_name;
+  -- Preserve the original SQLSTATE and rollback; never log supplied values,
+  -- exception messages/details or SQL context.
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'error',
+    'event', 'database.function.failed', 'stage', stage,
+    'database_code', sqlstate,
+    'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
+    'column', nullif(failed_column, ''),
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+  raise;
 end;
 $$;
 
@@ -173,23 +307,73 @@ as $$
 declare
   original_deactivated_at timestamptz;
   mutation_time timestamptz;
+  stage text := 'audit_actor';
+  started_at timestamptz := clock_timestamp();
+  request_headers jsonb := nullif(current_setting('request.headers', true), '')::jsonb;
+  log_context jsonb;
+  failed_constraint text;
+  failed_table text;
+  failed_column text;
 begin
+  log_context := jsonb_build_object(
+    'rpc', 'species_deactivate', 'request_id', request_headers ->> 'x-request-id',
+    'method', request_headers ->> 'x-wrt-request-method',
+    'path', request_headers ->> 'x-wrt-request-path',
+    'species_id', p_id, 'actor_id', p_actor_id
+  );
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.started', 'stage', stage
+  );
+
   perform 1 from public.users where id = p_actor_id and deactivated_at is null for share;
   if not found then
     raise exception using errcode = 'PT500', message = 'Development audit user is missing or inactive.';
   end if;
+  stage := 'lock_species';
   select deactivated_at into original_deactivated_at
   from public.species where id = p_id for update;
   if not found then
     raise exception using errcode = 'PT404', message = 'Species not found.';
   end if;
 
-  if original_deactivated_at is null then
-    mutation_time := clock_timestamp();
-    update public.species set
-      deactivated_at = mutation_time, updated_at = mutation_time, updated_by = p_actor_id
-    where id = p_id;
+  if original_deactivated_at is not null then
+    raise log '%', log_context || jsonb_build_object(
+      'timestamp', clock_timestamp(), 'level', 'info',
+      'event', 'database.function.completed', 'stage', stage,
+      'outcome', 'already_inactive',
+      'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+    );
+    return;
   end if;
+
+  stage := 'deactivate_species';
+  mutation_time := clock_timestamp();
+  update public.species set
+    deactivated_at = mutation_time, updated_at = mutation_time, updated_by = p_actor_id
+  where id = p_id;
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'info',
+    'event', 'database.function.completed', 'stage', stage,
+    'outcome', 'success',
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+exception when others then
+  get stacked diagnostics
+    failed_constraint = constraint_name,
+    failed_table = table_name,
+    failed_column = column_name;
+  -- Preserve the original SQLSTATE and rollback; never log supplied values,
+  -- exception messages/details or SQL context.
+  raise log '%', log_context || jsonb_build_object(
+    'timestamp', clock_timestamp(), 'level', 'error',
+    'event', 'database.function.failed', 'stage', stage,
+    'database_code', sqlstate,
+    'constraint', nullif(failed_constraint, ''), 'table', nullif(failed_table, ''),
+    'column', nullif(failed_column, ''),
+    'duration_ms', round(extract(epoch from clock_timestamp() - started_at) * 1000)
+  );
+  raise;
 end;
 $$;
 

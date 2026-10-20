@@ -18,9 +18,11 @@ export function throwDatabaseError(
   error: { code: string },
   log: RequestLog,
   started: number,
+  operation: string,
 ): never {
   // Database messages/details can contain supplied values; log the code only.
   log("database.failed", {
+    database_operation: operation,
     database_code: error.code,
     duration_ms: Math.round(performance.now() - started),
   }, "error");

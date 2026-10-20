@@ -13,7 +13,8 @@ import type {
 } from "./database.types.ts";
 import { plantingEventListResponse, position } from "./responses.ts";
 import { DEVELOPMENT_ACTOR_ID } from "./config.ts";
-import { HttpError, throwDatabaseError } from "./http.ts";
+import { HttpError } from "./http.ts";
+import { queryDatabase } from "./database.ts";
 import type { RequestLog } from "./logging.ts";
 
 function areaListResponse(row: PlantingAreaListRow): PlantingAreaListResponse {
@@ -74,15 +75,19 @@ export async function listPlantingAreas(
   while (true) {
     const queryStarted = performance.now();
     log("planting_areas.list.batch.started", { offset, batch_size: 500 });
-    const { data, error } = await db.from("planting_areas").select(
-      "*, site:sites!inner(id, name, is_public), location:locations!planting_areas_location_id_fkey(id, geometry, deactivated_at)",
-    )
-      .is("deactivated_at", null)
-      .is("site.deactivated_at", null)
-      .order("name").order("id")
-      .range(offset, offset + 499)
-      .overrideTypes<PlantingAreaListRow[], { merge: false }>();
-    if (error) throwDatabaseError(error, log, queryStarted);
+    const data = await queryDatabase(
+      "planting_areas.list.batch",
+      log,
+      () =>
+        db.from("planting_areas").select(
+          "*, site:sites!inner(id, name, is_public), location:locations!planting_areas_location_id_fkey(id, geometry, deactivated_at)",
+        )
+          .is("deactivated_at", null)
+          .is("site.deactivated_at", null)
+          .order("name").order("id")
+          .range(offset, offset + 499)
+          .overrideTypes<PlantingAreaListRow[], { merge: false }>(),
+    );
     log("planting_areas.list.batch.completed", {
       offset,
       row_count: data.length,
@@ -111,9 +116,16 @@ export async function getPlantingArea(
     planting_area_id: id,
     rpc: "planting_area_get",
   });
-  const { data, error } = await db.rpc("planting_area_get", { p_id: id })
-    .maybeSingle().overrideTypes<PlantingAreaDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "planting_area_get",
+    log,
+    () =>
+      db.rpc("planting_area_get", { p_id: id })
+        .maybeSingle().overrideTypes<
+        PlantingAreaDetailRows,
+        { merge: false }
+      >(),
+  );
   if (data === null) {
     log("planting_areas.get.not_found", { planting_area_id: id }, "warn");
     throw new HttpError(404, "not_found", "Planting area not found.");
@@ -152,12 +164,16 @@ export async function createPlantingArea(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "planting_area_create",
   });
-  const { data, error } = await db.rpc("planting_area_create", {
-    ...editableArguments(body),
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_id: id,
-  }).single().overrideTypes<PlantingAreaDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "planting_area_create",
+    log,
+    () =>
+      db.rpc("planting_area_create", {
+        ...editableArguments(body),
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+        p_id: id,
+      }).single().overrideTypes<PlantingAreaDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     log(
       "planting_areas.create.empty_result",
@@ -191,12 +207,16 @@ export async function updatePlantingArea(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "planting_area_update",
   });
-  const { data, error } = await db.rpc("planting_area_update", {
-    ...editableArguments(body),
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_id: id,
-  }).single().overrideTypes<PlantingAreaDetailRows, { merge: false }>();
-  if (error) throwDatabaseError(error, log, started);
+  const data = await queryDatabase(
+    "planting_area_update",
+    log,
+    () =>
+      db.rpc("planting_area_update", {
+        ...editableArguments(body),
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+        p_id: id,
+      }).single().overrideTypes<PlantingAreaDetailRows, { merge: false }>(),
+  );
   if (data === null) {
     log(
       "planting_areas.update.empty_result",
@@ -229,11 +249,15 @@ export async function deactivatePlantingArea(
     actor_id: DEVELOPMENT_ACTOR_ID,
     rpc: "planting_area_deactivate",
   });
-  const { error } = await db.rpc("planting_area_deactivate", {
-    p_actor_id: DEVELOPMENT_ACTOR_ID,
-    p_id: id,
-  });
-  if (error) throwDatabaseError(error, log, started);
+  await queryDatabase(
+    "planting_area_deactivate",
+    log,
+    () =>
+      db.rpc("planting_area_deactivate", {
+        p_actor_id: DEVELOPMENT_ACTOR_ID,
+        p_id: id,
+      }),
+  );
   // The RPC is idempotent; this does not imply a new deactivation timestamp.
   log("planting_areas.deactivate.completed", {
     planting_area_id: id,
