@@ -1,3 +1,4 @@
+import { generateUniqueID, IdPrefixes } from "../_shared/ids.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   PlantingAreaCreateRequest,
@@ -144,7 +145,7 @@ export async function createPlantingArea(
   body: PlantingAreaCreateRequest,
   log: RequestLog,
 ): Promise<PlantingAreaResponse> {
-  const id = body.id;
+  const id = generateUniqueID(IdPrefixes.PLANTING_AREA);
   const started = performance.now();
   log("planting_areas.create.started", {
     planting_area_id: id,

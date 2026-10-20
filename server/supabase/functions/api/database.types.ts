@@ -15,6 +15,8 @@ export interface SpeciesEventRow {
   planting_area_name: string | null;
   planting_date: string;
   event_type: PlantingEventType;
+  season: string;
+  image_url: string;
   species_ids: string[];
   total_plants: number;
   is_public: boolean;

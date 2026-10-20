@@ -38,8 +38,8 @@ All 20 domain CRUD routes are implemented. Paths below are relative to the funct
 | --- | --- | --- | --- |
 | `/species` | Scientific name, then ID ascending | Server-generated species ID | None |
 | `/sites` | Name, then ID ascending | Server-generated site ID | Location geometry; server creates or retains the location ID |
-| `/planting-areas` | Name, then ID ascending | Supplied area ID | Supplied new location ID and geometry; parent site stays fixed |
-| `/planting-events` | Planting date, then ID descending | Supplied event ID | Complete species-count set with supplied new line IDs |
+| `/planting-areas`  | Name, then ID ascending            | Server-generated area ID    | Supplied new location ID and geometry; parent site stays fixed      |
+| `/planting-events` | Planting date, then ID descending  | Server-generated event ID   | Complete species-count set; omit new line IDs for server generation |
 
 Lists return complete plain arrays and details return full objects. Query parameters have no effect. PUT replaces the complete editable form and takes identity from the path. POST returns 201 and a relative `Location` header with the ID percent-encoded as a URL path segment. JSON IDs retain their original values; clients should encode IDs when constructing URLs.
 
@@ -76,12 +76,12 @@ Only Point geometry is supported in this release, with longitude first. Use `"lo
 
 Planting areas use the same CRUD methods at `/planting-areas` and `/planting-areas/:id`. Lists sort by name then ID and include the current parent-site summary and the area's own position. Details include location, totals, species totals and event history. All active areas under active sites are accessible, including unpublished areas/sites. An unlocated area has null position; it does not inherit the site pin.
 
-The existing area contract accepts a caller-supplied 16-character ID on POST and a caller-supplied location ID with geometry. PUT uses its path ID and accepts the complete five editable fields: `site_id`, `name`, `description`, `location`, `is_public`. The parent site cannot change. IDs/audit fields added to PUT have no effect.
+The server generates the area ID on POST. Area location input still accepts a caller-supplied location ID with geometry. PUT uses its path ID and accepts the complete five editable fields: `site_id`, `name`, `description`, `location`, `is_public`. The parent site cannot change. Top-level IDs/audit fields added to POST or PUT have no effect.
 
 ```sh
 curl -i http://127.0.0.1:54321/functions/v1/api/planting-areas \
   -H 'Content-Type: application/json' \
-  -d '{"id":"are_000000000001","site_id":"<site-id>","name":"Northern bank","description":"","location":{"id":"loc_000000000001","geometry":{"type":"Point","coordinates":[168.81,-44.98]}},"is_public":false}'
+  -d '{"site_id":"<site-id>","name":"Northern bank","description":"","location":{"id":"loc_000000000001","geometry":{"type":"Point","coordinates":[168.81,-44.98]}},"is_public":false}'
 
 curl http://127.0.0.1:54321/functions/v1/api/planting-areas
 curl "http://127.0.0.1:54321/functions/v1/api/planting-areas/<area-id>"
@@ -93,28 +93,28 @@ curl -i -X PUT "http://127.0.0.1:54321/functions/v1/api/planting-areas/<area-id>
 curl -i -X DELETE "http://127.0.0.1:54321/functions/v1/api/planting-areas/<area-id>"
 ```
 
-Replace the placeholders and choose fresh area/location IDs for each new record; the example IDs are illustrative. Existing owned location IDs allow in-place edits. A different unused location ID replaces/deactivates the old location; null detaches/deactivates it. Historical IDs and locations belonging to another site/area return 409, as do duplicate area IDs, parent changes and unavailable create parents. Failed writes roll back both area and location changes.
+Replace the placeholders and choose a fresh location ID for each new location; the example ID is illustrative. Existing owned location IDs allow in-place edits. A different unused location ID replaces/deactivates the old location; null detaches/deactivates it. Historical IDs and locations belonging to another site/area return 409, as do parent changes and unavailable create parents. Failed writes roll back both area and location changes.
 
 Area DELETE deactivates its owned location and preserves event links. Repeated DELETE under an active parent returns 204. Unknown/inactive area reads and updates return 404; an inactive parent also makes area GET/PUT/DELETE return 404. No child rows are cascaded when deleting a site.
 
-Planting events use the same five CRUD methods at `/planting-events` and `/planting-events/:id`. Lists sort by planting date descending, then ID descending. POST accepts a caller-supplied 16-character event ID. Both POST and PUT include every editable field and the complete desired `species` line set. New line IDs are caller-supplied; retain them when editing. PUT identity comes from the path, and audit fields are ignored.
+Planting events use the same five CRUD methods at `/planting-events` and `/planting-events/:id`. Lists sort by planting date descending, then ID descending. POST generates a 16-character event ID on the server. Both POST and PUT include every editable field and the complete desired `species` line set. Omit `id` for each new count line; the server generates it and returns it in the response. Retain returned line IDs when editing existing counts. PUT identity comes from the path, and audit fields are ignored.
 
 ```sh
 curl -i http://127.0.0.1:54321/functions/v1/api/planting-events \
   -H 'Content-Type: application/json' \
-  -d '{"id":"pev_000000000001","site_id":"<site-id>","planting_area_id":null,"planting_date":"2026-10-19","event_type":"establishment","notes":"First planting","image_url":"","is_public":false,"species":[{"id":"pes_000000000001","species_id":"<species-id>","quantity":25}]}'
+  -d '{"site_id":"<site-id>","planting_area_id":null,"planting_date":"2026-10-19","event_type":"establishment","season":"Spring","notes":"First planting","image_url":"","is_public":false,"species":[{"species_id":"<species-id>","quantity":25}]}'
 
 curl http://127.0.0.1:54321/functions/v1/api/planting-events
 curl "http://127.0.0.1:54321/functions/v1/api/planting-events/<event-id>"
 
 curl -i -X PUT "http://127.0.0.1:54321/functions/v1/api/planting-events/<event-id>" \
   -H 'Content-Type: application/json' \
-  -d '{"site_id":"<site-id>","planting_area_id":null,"planting_date":"2026-10-19","event_type":"infill","notes":"Corrected quantity","image_url":"","is_public":true,"species":[{"id":"pes_000000000001","species_id":"<species-id>","quantity":30}]}'
+  -d '{"site_id":"<site-id>","planting_area_id":null,"planting_date":"2026-10-19","event_type":"infill","season":"Spring","notes":"Corrected quantity","image_url":"","is_public":true,"species":[{"id":"<returned-line-id>","species_id":"<species-id>","quantity":30},{"species_id":"<another-species-id>","quantity":5}]}'
 
 curl -i -X DELETE "http://127.0.0.1:54321/functions/v1/api/planting-events/<event-id>"
 ```
 
-Replace placeholders and choose fresh event/count IDs for each new record. `event_type` is `establishment`, `infill` or `replacement`; dates are calendar dates, and quantities are non-negative safe integers. Omitted lines are soft-deactivated; `species: []` removes all active lines. Previously omitted line IDs may be reactivated for the same event when their species is active. Duplicate line/species IDs, another event's line IDs, invalid parent assignments and new inactive references return 409. Any failure rolls back the event and every count change.
+Replace placeholders with returned IDs. In the PUT example, the first count is edited and the second is added without a line ID. If the catalogue species itself is new, create it through `POST /species` first and use its returned ID as `species_id`. `season` is free text (e.g. Summer or autumn); send `""` when unspecified. Event lists, embedded histories and details include `season` and `image_url`. Every count and species total contains a non-null species reference. `event_type` is `establishment`, `infill` or `replacement`; dates are calendar dates, and quantities are non-negative safe integers. Omitted lines are soft-deactivated; `species: []` removes all active lines. Previously omitted line IDs may be reactivated for the same event when their species is active. Duplicate line/species IDs, another event's line IDs, invalid parent assignments and new inactive references return 409. Any failure rolls back the event and every count change.
 
 An unchanged active line can keep an inactive species, including quantity edits. An unchanged inactive-area link may also be retained; details show `is_active: false`, while list summaries show a null area. Effective geometry uses the active area's location, falling back to the site's location. Event sites may change with a consistent active area or null. Deleting an event preserves its count history and removes it from all ordinary totals/history; repeated DELETE returns 204. An inactive site makes child event GET/PUT/DELETE return 404.
 
@@ -162,7 +162,7 @@ Event saves lock the actor, parent sites in ID order, the event, optional area, 
 
 Expected database conflicts return 409; known constraint, numeric/date, null-byte and malformed-Unicode input errors return sanitized 400 responses. Unexpected failures remain sanitized 500s. The alias constraint guards its dimensionality before calling array operations, so nested arrays fail as constraint violations. These checks preserve database integrity without adding application request validators.
 
-The six migrations currently define the seven domain tables, species/site/area/event read and write RPCs, server-only grants, supporting indexes and the guarded species-alias constraint. Development actors live in the domain migration; there is no separate fixture seed or startup provisioning step. Historical import is specified but its operator script has not been implemented.
+The six migrations currently define the seven domain tables, species/site/area/event read and write RPCs, server-only grants, supporting indexes, the guarded species-alias constraint and event season/summary fields. Development actors live in the domain migration; there is no separate fixture seed or startup provisioning step. Historical import is specified but its operator script has not been implemented.
 
 The canonical HTTP contracts and primitives live in the monorepo's `shared/api-types.ts`. The function's `deno.json` maps `@wrt/api-types` to that file, and server modules use `import type` so these imports are erased from runtime code. Keep this shared module limited to types; runtime utilities need separate consideration for Supabase bundling and local container paths. Database types are generated separately; `api/database.types.ts` describes the non-null composite result fields guaranteed by SQL, which introspection cannot infer. RPC calls use explicit result-type overrides without runtime validation.
 
@@ -192,10 +192,10 @@ The current test inventory is:
 | `tests/species_test.ts` | 6 | Catalogue CRUD, fields, constraints, HTTP behavior and complete lists |
 | `tests/sites_test.ts` | 9 | Site CRUD, owned-location lifecycle, rollback, concurrent saves and complete lists |
 | `tests/planting-areas_test.ts` | 11 | Area CRUD, immutable parents, location ownership/history and complete nested collections |
-| `tests/planting-events_test.ts` | 13 | Event CRUD, desired count sets, inactive references, totals, concurrency and complete events/lines |
+| `tests/planting-events_test.ts` | 14 | Event CRUD, desired count sets, inactive references, totals, concurrency and complete events/lines |
 | `tests/workflows_test.ts` | 13 | Cross-resource reconciliation, unusual inputs, rollback, live references and deletion races |
 
-The last full local verification on 20 October 2026 passed all five suites and 52 steps, plus formatting, lint, type checks and database lint. This records a completed run rather than a line/branch coverage percentage. Update this inventory when tests change.
+The contract-update verification on 20 October 2026 passed formatting, lint, type checks and database lint. All 14 planting-event steps passed. The full HTTP run finished with 36 passing and 17 failing steps after local Edge worker startup failures, gateway errors/timeouts and eventual connection refusal. Some test-fixture cleanup and local migration-history reconciliation remain incomplete because Docker became unresponsive; this is not a clean full-suite pass.
 
 Run all HTTP suites with Docker running, from `server/`. Stop any manually served function process first; the runner owns its serving process:
 
@@ -216,7 +216,7 @@ Coverage includes complete create/read/update/delete responses, server IDs, pres
 
 Site tests additionally cover location creation, retaining an ID on geometry changes, detach/reattach with a fresh ID, ignored supplied location IDs, independent location ownership, rejected geometry, rollback after nested writes and concurrent complete saves. Lists exceed 1,000 sites and include both located and unlocated, public and unpublished records.
 
-Area tests cover supplied IDs, immutable parents, current site references, location ownership across sites/areas, historical-ID conflicts, concurrent claims/saves, rollback, inactive parents and all HTTP methods. They also verify complete nested site collections with more than 1,000 areas. Parent sites are created through POST /sites; cleanup deletes areas first. The parent-deletion case retains its inaccessible child rows as history, matching the lifecycle rule.
+Area tests cover server-generated IDs, immutable parents, current site references, location ownership across sites/areas, historical-ID conflicts, concurrent claims/saves, rollback, inactive parents and all HTTP methods. They also verify complete nested site collections with more than 1,000 areas. Parent sites are created through POST /sites; cleanup deletes areas first. The parent-deletion case retains its inaccessible child rows as history, matching the lifecycle rule.
 
 Every fixture is created and cleaned up through the implemented HTTP endpoints. Each resource suite creates over 1,000 records; cleanup soft-deactivates them, so historical test rows remain locally. Tests use a fixed loopback URL, bounded concurrency and `finally` cleanup, leaving unrelated data untouched. Avoid concurrent manual edits while testing list completeness. All suites share HTTP assertion helpers in `tests/http.ts`.
 
@@ -224,7 +224,7 @@ Event tests cover non-zero site/area/species totals and histories, whole-event s
 
 `tests/workflows_test.ts` adds smaller cross-resource regressions: reconcile totals/history after event moves and complete line edits, refresh current names/catalogue metadata/location fallback, reject cumulative overflow across individually safe events, prove failed parent edits roll back and recover after deletion, preserve inactive-reference history, race event saves against area/species deletion, and check calendar/scalar constraints and unknown routes. It uses the same local stack and HTTP-only fixtures; `test:workflows` avoids repeating the bulk suites.
 
-Additional workflow regressions cover literal Unicode/SQL-like text, duplicate/empty aliases, coordinate extrema and malformed geometry, catalogue constraint rollback (including null bytes and malformed Unicode), three-way count swaps, ownership of lines under deleted events, and Unicode/reserved-character IDs. Returned `Location` URLs percent-encode IDs; response-body IDs remain unchanged. A guarded alias constraint rejects multidimensional arrays with a normal 400 instead of an unsupported-operation 500.
+Additional workflow regressions cover literal Unicode/SQL-like text, duplicate/empty aliases, coordinate extrema and malformed geometry, catalogue constraint rollback (including null bytes and malformed Unicode), three-way count swaps, ownership of lines under deleted events, and ignored supplied Unicode/reserved-character resource IDs. Returned `Location` URLs percent-encode IDs; response-body IDs remain unchanged. A guarded alias constraint rejects multidimensional arrays with a normal 400 instead of an unsupported-operation 500.
 
 All 20 domain CRUD routes in the spec are implemented. Locations and event-species lines are nested resources, not additional endpoints; historical import remains an operator script. Current coverage is behavioral HTTP integration coverage, not a measured 100% line/branch result. Direct verification of private audit/deactivation fields and active-actor failure paths, automated browser-role/default-grant checks, hosted CORS/runtime behavior, migration replay/recovery and the future authentication/public-view rules need separate checks. Historical import and its tests are also outstanding. Do not label these gaps covered by successful CRUD tests.
 

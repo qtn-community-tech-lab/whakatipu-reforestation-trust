@@ -26,6 +26,8 @@ export function plantingEventListResponse(
         : { id: event.planting_area_id, name: event.planting_area_name },
     planting_date: event.planting_date,
     event_type: event.event_type,
+    season: event.season,
+    image_url: event.image_url,
     species_ids: event.species_ids,
     total_plants: event.total_plants,
     is_public: event.is_public,

@@ -128,6 +128,7 @@ create table public.planting_events (
   planting_area_id text references public.planting_areas (id) on delete restrict,
   planting_date date not null,
   event_type text not null,
+  season text not null default '',
   notes text not null default '',
   image_url text not null default '',
   is_public boolean not null default false,

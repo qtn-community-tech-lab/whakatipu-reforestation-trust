@@ -32,7 +32,9 @@ create type public.species_event_row as (
   event_type text,
   species_ids text[],
   total_plants numeric,
-  is_public boolean
+  is_public boolean,
+  season text,
+  image_url text
 );
 
 create type public.species_detail_rows as (
@@ -81,7 +83,7 @@ begin
     array(
       select row(e.id, e.site_id, e.site_name, e.site_is_public, area.id, area.name,
         e.planting_date, e.event_type, coalesce(q.species_ids, '{}'::text[]),
-        q.total_plants, e.is_public)::public.species_event_row
+        q.total_plants, e.is_public, e.season, e.image_url)::public.species_event_row
       from matching_events e
       join event_quantities q on q.id = e.id
       left join public.planting_areas area

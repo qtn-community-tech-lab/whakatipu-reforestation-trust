@@ -1,7 +1,7 @@
 ---
 id: SPEC-wrt-backend
 project: Whakatipu Reforestation Trust
-updated: 2026-10-19
+updated: 2026-10-20
 status: implementation handoff draft
 companions: []
 sources:
@@ -27,8 +27,9 @@ The following agreed development choices take precedence over the later target b
 - Species, site, planting-area and planting-event HTTP end-to-end tests are maintained against local Supabase using Deno's built-in runner. Create all fixtures through the implemented HTTP endpoints and clean up by soft deletion; do not reset local data. Event tests verify non-zero histories/totals across species, sites and areas, desired-line replacement, inactive references and complete collections exceeding 1,000 records. Other suites and the wider acceptance matrix below remain future guidance unless requested.
 - Authentication is deferred. Requests need no bearer token or API key at the handler. Every request has editor scope: all active species, sites, planting areas, planting events and otherwise active related records are visible regardless of publication flags.
 - Use the seeded app user `usr_000000000001` for every write's audit identity. This is a local development identity, not a Supabase Auth account. RPCs still check that the actor is active.
-- The server generates site, new site-location and species IDs. Site and species create requests alias their corresponding update requests and omit IDs. Site location input is `{ geometry }` or null; PUT retains an existing location ID, creates one if needed, or detaches/deactivates on null. Planting-area POST accepts its supplied ID and `{ id, geometry }` location input; PUT retains the parent site and uses the path ID. Planting-event POST and new count lines accept supplied IDs. Event PUT replaces the entire desired active line set, may move sites with a consistent optional area, and preserves allowed historical references as described in section 11.3.
-- Assume requests match the TypeScript contracts. Do not add Zod, replacement request validators, path-ID validators or response-schema validators. JSON parsing failures return 400; existing database constraints remain enforced. Extra request properties are ignored. Audit identities always come from trusted code; PUT identity comes from its path, and only area/event POST and their nested inputs accept the IDs declared in their contracts. Query parameters have no effect and do not add filtering.
+- The server generates all resource IDs and new site-location IDs. Create requests alias their corresponding update requests and omit top-level IDs. Site location input is `{ geometry }` or null; PUT retains an existing location ID, creates one if needed, or detaches/deactivates on null. Area location input remains `{ id, geometry }` or null; PUT retains the parent site. New event-count rows may omit `id` for server generation; existing lines retain their IDs. Event PUT replaces the entire desired active line set, may move sites with a consistent optional area, and preserves allowed historical references as described in section 11.3.
+- Events accept free-text `season`, with `""` when unspecified. Event list summaries (including embedded histories) include `season` and `image_url`; details inherit both. Species totals and event quantities always contain non-null species references. Anonymous species visibility policy must be reconciled with these contracts before authentication is implemented.
+- Assume requests match the TypeScript contracts. Do not add Zod, replacement request validators, path-ID validators or response-schema validators. JSON parsing failures return 400; existing database constraints remain enforced. Extra request properties are ignored. Audit identities always come from trusted code; PUT identity comes from its path, and only nested area-location/count inputs accept the IDs declared in their contracts. Query parameters have no effect and do not add filtering.
 - Retain the full species, site, planting-area and planting-event detail contracts, including real totals and complete related summaries. Site details include owned geometry, per-species quantities, active planting areas and event history. Area details include their current parent site, owned location and area-specific totals/history. Event details include all active lines (including zero quantities and inactive species), historical area identity and effective area/site location. Preserve soft deactivation, audit history, safe aggregate limits and the server-only table/RPC access boundary.
 - Keep Postgres functions lightweight: use typed queries for catalogue lists and small RPCs for consistent detail reads, event-list aggregates and transactional writes. Assemble public response objects in TypeScript, not SQL JSON builders. This takes precedence over older SQL response-assembly recommendations below.
 
@@ -75,13 +76,13 @@ WRT needs reliable actual planting records that staff can find, correct and sele
 - One TypeScript Edge Function named `api`, using Supabase's Deno-compatible runtime. No separate Node server, VM or second backend host.
 - Supabase Postgres. Seven application/domain tables: `users`, `sites`, `planting_areas`, `locations`, `species`, `planting_events`, `planting_event_species`. Supabase's managed `auth` tables are additional platform infrastructure, not application tables.
 - Four domain CRUD resources: sites, planting areas, species and planting events. Locations and count rows are owned nested writes, not independent HTTP resources.
-- Four named contracts per domain resource (site and species create requests are aliases): `*CreateRequest`, `*UpdateRequest`, `*ListResponse`, `*Response`. Reuse through `extends`; no `Omit`, `Pick` or mapped DTO derivation. Define small nested objects inline.
+- Four named contracts per domain resource (all create requests are aliases): `*CreateRequest`, `*UpdateRequest`, `*ListResponse`, `*Response`. Reuse through `extends`; no `Omit`, `Pick` or mapped DTO derivation. Define small nested objects inline.
 - Lists return complete plain arrays. No list filtering, pagination, cursors, `include` machinery or response envelope. Search and filtering happen in the client. Visibility is always enforced on the server.
 - Detail responses include complete scoped related arrays, not initial history pages or recursive nested detail objects.
-- Retain 16-character string domain IDs. Site, new site-location and species IDs are generated by the server; area/event target create contracts still accept supplied IDs, including their nested records. Supabase Auth UUIDs are mapped separately, not substituted for domain IDs.
+- Retain 16-character string domain IDs. Site, planting-area, planting-event, new site-location and species IDs are generated by the server. New event-count rows may omit their IDs for server generation; existing line IDs are retained on edit. Area-location inputs still accept supplied IDs. Supabase Auth UUIDs are mapped separately, not substituted for domain IDs.
 - JSON fields use snake_case. Optional ordinary text is `""`, not null. Genuine missing relationships are null.
 - One `image_url: string` on species and events. No image arrays, image table, upload API or photo capture-date field in this release.
-- One required exact `planting_date`, not separate year/season/precision columns.
+- One required exact `planting_date`, plus an ordinary free-text `season` (e.g. Summer or autumn, empty when unspecified); no separate year or precision columns.
 - Phase 1 location input is a GeoJSON Point. The shared geometry type leaves room for future polygons; polygon submission/editing is not enabled in this release.
 - DELETE means soft deactivation. Preserve audit identities and historical relationships. No hard-delete HTTP endpoints.
 - No custom session, OAuth callback, refresh-token or logout endpoints. Supabase owns its authentication protocol; the application's OAuth return page is a frontend route.
@@ -243,7 +244,7 @@ A user with a rejected/inactive app account may still browse public data by sign
 | Quantity        | `bigint not null`, constrained to 0 through 9007199254740991. Validate JSON integer semantics before any database cast. |
 | Event type      | constrained text or Postgres enum: `establishment`, `infill`, `replacement`.                                            |
 
-Treat IDs as opaque: no trimming, case-folding or Unicode normalization. Reject malformed Unicode/NUL and values not exactly 16 Unicode characters; match JS validation to Postgres character counting. For new IDs, the frontend/operator may use a maintained URL-safe random-ID library configured to length 16. Site and species APIs generate their IDs with the shared helper, including new site locations; area/event target endpoints still accept supplied IDs. An ID collision is an error, not an instruction to update.
+Treat IDs as opaque: no trimming, case-folding or Unicode normalization. Reject malformed Unicode/NUL and values not exactly 16 Unicode characters; match JS validation to Postgres character counting. For new IDs, the frontend/operator may use a maintained URL-safe random-ID library configured to length 16. All resource APIs generate their IDs with the shared helper, including new site locations. New count rows may omit their IDs; area-location inputs retain supplied IDs. An ID collision is an error, not an instruction to update.
 
 ### 8.2 Shared editable-row columns
 
@@ -273,7 +274,7 @@ All columns below are additional to the shared columns.
 | `planting_areas`         | `site_id text not null` FK `sites.id`; `name text not null`; `description text not null default ''`; `location_id text null` FK `locations.id`, unique when non-null; `is_public boolean not null default false`.                                                     |
 | `locations`              | `geometry jsonb not null`. No own publication flag or source/accuracy columns.                                                                                                                                                                                        |
 | `species`                | `scientific_name text not null`; `common_name text not null`; `aliases text[] not null default '{}'`; `description text not null default ''`; `image_url text not null default ''`; `is_public boolean not null default false`.                                       |
-| `planting_events`        | `site_id text not null` FK `sites.id`; `planting_area_id text null` FK `planting_areas.id`; `planting_date date not null`; `event_type` required; `notes text not null default ''`; `image_url text not null default ''`; `is_public boolean not null default false`. |
+| `planting_events`        | `site_id text not null` FK `sites.id`; `planting_area_id text null` FK `planting_areas.id`; `planting_date date not null`; `event_type` required; `season text not null default ''`; `notes text not null default ''`; `image_url text not null default ''`; `is_public boolean not null default false`. |
 | `planting_event_species` | `planting_event_id text not null` FK `planting_events.id`; `species_id text not null` FK `species.id`; `quantity bigint not null`. Unique active `(planting_event_id, species_id)`.                                                                                   |
 
 Do not make site names, area names or species names globally unique without a separate requirement. Multiple areas per site are allowed by the database; an initial UI may expose only one. Relationships are not represented by empty strings.
@@ -323,7 +324,7 @@ Create/update return the corresponding detail `*Response` directly, not a row ID
 - Lists accept no query parameters. Reject unexpected query parameters with 400 rather than implement server-side filtering. Path parameters still identify individual resources.
 - Return every active visible record, or `[]`. Do not truncate to a hidden default limit.
 - Stable ordering: sites/areas by name then ID ascending; species by scientific name then ID ascending; events by planting date descending then ID descending. Use deterministic database ordering rather than locale-dependent client/server disagreement.
-- Embedded area/event collections use the same list DTOs and ordering, scoped to their parent. Event species lines and species-total groups are consistently ordered by species ID, with any hidden null group last.
+- Embedded area/event collections use the same list DTOs and ordering, scoped to their parent. Event species lines and species-total groups are consistently ordered by species ID, without nullable species groups.
 - Lists exclude descriptions, full geometry and histories. Site/area `position` is the visible attached Point coordinate, or null.
 - Species aliases support client name search. Event `species_ids` contains deduplicated visible species IDs with positive quantities. It does not expose private/deactivated catalogue IDs publicly.
 - Site/species dropdowns use ordinary lists. Do not add duplicate lookup endpoints or historical-reference endpoints.
@@ -332,7 +333,7 @@ Create/update return the corresponding detail `*Response` directly, not a row ID
 
 ## 10. Complete TypeScript API contracts
 
-This block is self-contained and preserves the named domain contracts, including the site and species create aliases. Shared primitives are included so the backend developer does not need the source TypeScript files. `ErrorResponse` is infrastructure, not a fifth contract per resource. Its `internal_error` case is the small addition needed for explicit HTTP 500 handling.
+This block is self-contained and preserves the named domain contracts, including the server-generated resource create aliases. Shared primitives are included so the backend developer does not need the source TypeScript files. `ErrorResponse` is infrastructure, not a fifth contract per resource. Its `internal_error` case is the small addition needed for explicit HTTP 500 handling.
 
 The `is_active` fields on nested event references indicate retained current relationships to deactivated records. They are not historical snapshots or separate API resources. No `Historical*`, `*Ref`, totals, metadata or Location interfaces are introduced.
 
@@ -376,13 +377,12 @@ export interface SiteResponse extends SiteListResponse {
   location: { id: Id; geometry: Geometry } | null;
   totals: { planting_event_count: number; total_plants: number };
   species_totals: {
-    /** Null when the catalogue reference is not visible to the caller. */
     species: {
       id: Id;
       scientific_name: string;
       common_name: string;
       image_url: string;
-    } | null;
+    };
     quantity: number;
   }[];
   /** Complete related arrays, restricted to records visible to the caller. */
@@ -418,13 +418,12 @@ export interface PlantingAreaResponse extends PlantingAreaListResponse {
   location: { id: Id; geometry: Geometry } | null;
   totals: { planting_event_count: number; total_plants: number };
   species_totals: {
-    /** Null when the catalogue reference is not visible to the caller. */
     species: {
       id: Id;
       scientific_name: string;
       common_name: string;
       image_url: string;
-    } | null;
+    };
     quantity: number;
   }[];
   planting_events: PlantingEventListResponse[];
@@ -439,9 +438,8 @@ export interface PlantingAreaUpdateRequest {
   is_public: boolean;
 }
 
-export interface PlantingAreaCreateRequest extends PlantingAreaUpdateRequest {
-  id: Id;
-}
+/** POST generates the planting-area ID on the server. */
+export type PlantingAreaCreateRequest = PlantingAreaUpdateRequest;
 
 // Species
 
@@ -486,9 +484,12 @@ export interface PlantingEventListResponse {
   planting_area: { id: Id; name: string } | null;
   planting_date: CalendarDate;
   event_type: PlantingEventType;
+  /** Free text, e.g. "Summer" or "autumn"; empty when unspecified. */
+  season: string;
   /** Visible positive-quantity species, for client-side filtering. */
   species_ids: Id[];
   total_plants: number;
+  image_url: string;
   is_public: boolean;
 }
 
@@ -498,25 +499,21 @@ export interface PlantingEventResponse extends PlantingEventListResponse {
   created_at: Timestamp;
   updated_at: Timestamp;
   notes: string;
-  image_url: string;
   /** Active visible area's location, falling back to the site's location. */
   location: { id: Id; geometry: Geometry } | null;
-  /** Editors get every actual line. Public hidden quantities form one null group. */
-  species: (
-    | {
-      /** Event-species row ID, retained when editing. */
+  /** Every quantity is linked to a catalogue species, including inactive references. */
+  species: {
+    /** Event-species row ID, retained when editing. */
+    id: Id;
+    species: {
       id: Id;
-      species: {
-        id: Id;
-        scientific_name: string;
-        common_name: string;
-        image_url: string;
-        is_active: boolean;
-      };
-      quantity: number;
-    }
-    | { id: null; species: null; quantity: number }
-  )[];
+      scientific_name: string;
+      common_name: string;
+      image_url: string;
+      is_active: boolean;
+    };
+    quantity: number;
+  }[];
 }
 
 export interface PlantingEventUpdateRequest {
@@ -524,21 +521,23 @@ export interface PlantingEventUpdateRequest {
   planting_area_id: Id | null;
   planting_date: CalendarDate;
   event_type: PlantingEventType;
+  /** Free text, e.g. "Summer" or "autumn"; empty when unspecified. */
+  season: string;
   notes: string;
   image_url: string;
   is_public: boolean;
   /** Complete desired line set; omitted existing rows are soft-deactivated. */
   species: {
-    /** Caller-generated for new rows, retained for existing rows. */
-    id: Id;
+    /** Omit for a new count row; retain the returned ID when editing an existing row. */
+    id?: Id;
+    /** Catalogue ID from POST /species; required even for a new count row. */
     species_id: Id;
     quantity: number;
   }[];
 }
 
-export interface PlantingEventCreateRequest extends PlantingEventUpdateRequest {
-  id: Id;
-}
+/** POST generates the planting-event ID on the server. */
+export type PlantingEventCreateRequest = PlantingEventUpdateRequest;
 
 export interface ErrorResponse {
   error: {
@@ -562,7 +561,7 @@ export interface ErrorResponse {
 
 ### 11.1 Create and full-form update
 
-Site and species POST generate their IDs on the server; area/event target POST bodies include the supplied resource ID. PUT uses the URL ID and the complete editable form, not the read DTO. Every property in the corresponding request interface is required, including nullable relationship properties and arrays. Missing fields are validation errors, not instructions to reset them. Reject audit fields, body-level resource IDs on PUT and other unknown fields.
+All resource POSTs generate their IDs on the server. New count rows omit their IDs for server generation; existing count rows retain their IDs. PUT uses the URL ID and the complete editable form, not the read DTO. Every property in the corresponding request interface is required, including nullable relationship properties and arrays, except optional new count-row IDs. Missing fields are validation errors, not instructions to reset them. Reject audit fields, body-level resource IDs on PUT and other unknown fields.
 
 ID collisions, including collisions with inactive rows, return 409. POST is never an upsert. Ordinary PUT cannot edit an inactive resource and returns 404. A parent hidden by an inactive Site is also outside ordinary update access. Restoration is not included.
 
@@ -597,7 +596,7 @@ Treat `species` as the entire desired active line set, saved with the event in o
 1. Validate the selected site and optional area. Lock/recheck parents and relevant existing count rows.
 2. Reject duplicate line IDs and duplicate species IDs in the submitted active set.
 3. Existing line ID for this event: preserve that row and its creation fields; update its editable fields.
-4. New line ID: insert a new count row for this event, with server-set audit fields.
+4. Omitted line ID: generate an ID on the server and insert a new count row for this event, with server-set audit fields. Return the ID for subsequent edits.
 5. Omitted currently active rows: soft-deactivate them.
 6. Previously inactive line ID explicitly resubmitted for this same event: reactivate it only after all current checks pass. This is limited nested-row reuse, not general parent restoration.
 7. A supplied line ID belonging to another event: 409, never move it.
@@ -666,21 +665,13 @@ Related collections contain list DTOs, not nested details, to avoid recursion an
 
 Do not join all Areas, Events and count rows into an ungrouped result and then sum. Use independent grouped aggregates/CTEs/subqueries so multiple relationships do not multiply totals. Compute detail histories and totals from a consistent read snapshot, using a focused SQL query where necessary, and assemble the public JSON representation in TypeScript.
 
-### 12.4 Redacting hidden and inactive references
+### 12.4 Species references and future public visibility
 
 Editors receive all actual active Event count lines with their real line IDs, even when a linked Species is inactive. Include the compact Species display values and `is_active: false`. Retained inactive Area references use the same inline active flag in Event detail. Ordinary Event list items return null for an inactive Area; the detail response is the explicit editor exception that preserves the old link for editing. This does not make inactive Areas/Species available through ordinary direct GETs.
 
-For anonymous output:
+Site/area species totals and event quantities always contain a non-null species reference. Retained inactive catalogue references remain available in current editor responses. The former public null-species grouping design is superseded by these contracts. Before anonymous reads are implemented, agree a visibility policy that preserves required species links without exposing private catalogue data. Do not implement nullable groups against the current API types.
 
-- Event count rows whose Species catalogue entry is private or inactive are merged into one `{ id: null, species: null, quantity: combinedQuantity }` entry. Do not reveal the original row IDs, Species IDs, names, aliases, images or number of hidden catalogue entries.
-- Site/Area species totals likewise combine positive hidden quantities into one `{ species: null, quantity: combinedQuantity }` group.
-- Visible active published Species keep their permitted compact identity. Public `species_ids` contains only visible active published Species with positive counts.
-- A hidden/inactive Area becomes null in an anonymous Event. Its notes/geometry are not substituted into other fields.
-- App-user IDs, emails, Auth UUIDs and raw audit actor columns are never part of domain DTOs.
-
-When all hidden line quantities are zero, an Event may still expose one zero-valued null group because its complete active line set contains hidden zero-count data. Do not reveal additional identity information; Site/Area summaries still omit zero-only groups.
-
-Apply these rules during scoped query/serialization, not by sending private data and asking the client to hide it.
+A hidden/inactive Area becomes null in an anonymous Event. Its notes/geometry are not substituted into other fields. App-user IDs, emails, Auth UUIDs and raw audit actor columns are never part of domain DTOs. Apply visibility during scoped query/serialization, not by sending private data and asking the client to hide it.
 
 ### 12.5 Image URLs
 
@@ -694,7 +685,7 @@ Image-host selection and supplying suitable URLs are launch/content inputs. If p
 
 Validate path IDs, JSON shape and required fields at the API boundary; enforce database invariants again at persistence boundaries. TypeScript interfaces are not runtime validation. Use a small maintained validation library or explicit validators, not a custom schema framework.
 
-- Names, required species names and approved user email/display name cannot be blank. Optional descriptions/notes/image URL accept `""`, not null.
+- Names, required species names and approved user email/display name cannot be blank. Optional descriptions/notes/season/image URL accept `""`, not null.
 - Accept only documented properties/types. Reject numeric strings, implicit boolean coercion, null text, unknown enum values and unexpected query parameters.
 - Validate dates as real calendar dates with exact formatting, leap-year rules and year 1 through 9999. Do not parse them through timezone-bearing JavaScript timestamps and shift the day.
 - Quantity is a finite non-negative safe integer. Reject fractions, negative values, unsafe integers and null. Validate before casts that could round/truncate values.
@@ -836,7 +827,7 @@ These are implementation requirements to be demonstrated with tests or repeatabl
 | Anonymous writes             | POST/PUT/DELETE without a token fail with 401 and leave data unchanged. All four resources are covered.                                                                                                                                                                     |
 | Platform bypass              | Browser publishable key alone and an approved user's JWT cannot directly read/mutate app tables or execute privileged RPCs.                                                                                                                                                 |
 | Public publication           | Private/inactive Site hides children. Private Event does not contribute to public history/totals. Private Area does not hide an otherwise public Event, but its identity/geometry are removed.                                                                              |
-| Hidden Species               | Public quantities still reconcile; hidden/inactive Species identities and original line IDs are absent and consolidated into the null group. Editors retain actual line IDs.                                                                                                |
+| Hidden Species               | Every quantity has a species reference. Anonymous species visibility policy is deferred until authentication work; nullable groups are not supported. Editors retain actual line IDs.                                                                                       |
 | Lists                        | All endpoints return arrays, including `[]`; no envelopes, filters, pagination or silent 1,000-row cutoff. Unexpected query parameters return 400.                                                                                                                          |
 | Details/contracts            | Required joined objects and complete arrays match section 10. Lists omit large detail fields. No separate Historical/Ref DTOs or auth contracts appear.                                                                                                                     |
 | Event atomicity              | One invalid line fails the whole save with no event/line partial update. Omitted lines deactivate; unchanged row IDs persist; duplicate Species/foreign line IDs fail.                                                                                                      |
@@ -876,7 +867,7 @@ These are reversible technical defaults selected to make the handoff buildable, 
 3. Domain data is accessed only through the Edge API; server credentials bypass RLS and therefore require explicit scoped SQL/serializers. Browser grants are denied.
 4. JSONB geometry and native text-array aliases are adequate; no spatial extension is needed for Phase 1 pins.
 5. Full-form saves use serialized last-write-wins semantics. No edit-conflict warning/version contract is promised.
-6. Domain IDs remain 16 characters. Sites, new site locations and species use server-generated IDs; area/event target contracts still accept supplied IDs. Identity UUIDs do not change that scheme.
+6. Domain IDs remain 16 characters. Sites, areas, events, new site locations and species use server-generated IDs. New event-count rows may omit their IDs; area-location IDs remain caller-supplied. Identity UUIDs do not change that scheme.
 7. Single external image URLs and exact dates are the current agreed simplification; richer photos and partial date precision require a change if real import data demands them.
 8. This is a backend handoff for the current records/public-map slice, not formal acceptance of the entire longer-term roadmap or a fixed delivery estimate.
 
@@ -902,7 +893,7 @@ These do not block schema/API development with fixtures. Do not fabricate values
 - [Current persisted-row TypeScript](../database-tables.ts): seven tables, shared audit/deactivation columns, relationship fields, exact date and one image URL.
 - [Current API TypeScript](../api-contracts.ts): 16 domain interfaces and inline nested objects, copied into section 10. Its old custom authentication interfaces are intentionally excluded.
 - [Earlier API behavior notes](../api-contracts.md): retained write lifecycle, complete arrays, visibility, historical-count handling and validation rules. Supabase auth/storage decisions here supersede the older auth section.
-- [Earlier database constraint notes](../database-tables.md): retained relationship/lifecycle rules, but their image arrays, `asId` helper and unselected database language are superseded. Its caller-supplied ID behavior is superseded for sites, new site locations and species by the current server-generated ID contracts.
+- [Earlier database constraint notes](../database-tables.md): retained relationship/lifecycle rules, but their image arrays, `asId` helper and unselected database language are superseded. Its caller-supplied ID behavior is superseded for sites, areas, events, new site locations and species by the current server-generated ID contracts.
 - [Current phased roadmap](../../analysis/phased-roadmap-2026-10-15.md), James's 18 October revision: wider context and one-off WRT import. Phase 1 magic-link wording, dated-photo aspirations and partial-date wording are narrowed by the later explicit design decisions; future phases remain deferred.
 
 ### 18.2 Platform references

@@ -201,6 +201,7 @@ export type Database = {
           "notes": string;
           "planting_area_id": string | null;
           "planting_date": string;
+          "season": string;
           "site_id": string;
           "updated_at": string;
           "updated_by": string;
@@ -217,6 +218,7 @@ export type Database = {
           "notes"?: string;
           "planting_area_id"?: string | null;
           "planting_date": string;
+          "season"?: string;
           "site_id": string;
           "updated_at"?: string;
           "updated_by": string;
@@ -232,6 +234,7 @@ export type Database = {
           "notes"?: string;
           "planting_area_id"?: string | null;
           "planting_date"?: string;
+          "season"?: string;
           "site_id"?: string;
           "updated_at"?: string;
           "updated_by"?: string;
@@ -535,6 +538,7 @@ export type Database = {
           "p_notes": string;
           "p_planting_area_id": string;
           "p_planting_date": string;
+          "p_season": string;
           "p_site_id": string;
           "p_species": Json;
         };
@@ -727,6 +731,8 @@ export type Database = {
         "species_ids": (string)[] | null;
         "total_plants": number | null;
         "is_public": boolean | null;
+        "season": string | null;
+        "image_url": string | null;
       };
     };
   };

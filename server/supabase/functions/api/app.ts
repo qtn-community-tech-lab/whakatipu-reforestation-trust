@@ -1,3 +1,4 @@
+import { generateUniqueID, IdPrefixes } from "../_shared/ids.ts";
 import { createSupabaseContext } from "@supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Hono } from "hono";
@@ -286,7 +287,7 @@ export function createApp() {
     log("planting_events.create.body_parsed");
     const event = await savePlantingEvent(
       c.get("db"),
-      body.id,
+      generateUniqueID(IdPrefixes.PLANTING_EVENT),
       body,
       true,
       log,

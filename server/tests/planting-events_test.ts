@@ -87,11 +87,11 @@ function line(species: SpeciesResponse, quantity: number) {
 
 function body(site: SiteResponse): PlantingEventCreateRequest {
   return {
-    id: generateUniqueID(IdPrefixes.PLANTING_EVENT),
     site_id: site.id,
     planting_area_id: null,
     planting_date: "2026-10-19",
     event_type: "establishment",
+    season: "",
     notes: "",
     image_url: "",
     is_public: false,
@@ -114,8 +114,12 @@ function expected(
   ).map((item) => {
     const species = catalogue.get(item.species_id);
     ok(species);
+    const id = item.id ??
+      saved.species.find((line) => line.species.id === item.species_id)?.id;
+    ok(id);
+    if (item.id === undefined) match(id, /^pes_[a-z0-9]{12}$/);
     return {
-      id: item.id,
+      id,
       species: {
         id: species.id,
         scientific_name: species.scientific_name,
@@ -134,6 +138,7 @@ function expected(
       : { id: area.id, name: area.name, is_active: true },
     planting_date: input.planting_date,
     event_type: input.event_type,
+    season: input.season,
     species_ids: speciesLines.filter((item) => item.quantity > 0).map((item) =>
       item.species.id
     ),
@@ -160,6 +165,8 @@ function summary(saved: PlantingEventResponse): PlantingEventListResponse {
       : null,
     planting_date: saved.planting_date,
     event_type: saved.event_type,
+    season: saved.season,
+    image_url: saved.image_url,
     species_ids: saved.species_ids,
     total_plants: saved.total_plants,
     is_public: saved.is_public,
@@ -172,7 +179,7 @@ async function create(
   const response = await request("/planting-events", "POST", input);
   const saved = await readJson<PlantingEventResponse>(response, 201);
   events.add(saved.id);
-  strictEqual(saved.id, input.id);
+  match(saved.id, /^pev_[a-z0-9]{12}$/);
   strictEqual(
     response.headers.get("Location"),
     `/functions/v1/api/planting-events/${saved.id}`,
@@ -262,10 +269,12 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
         const input = {
           ...body(site),
           planting_area_id: area.id,
+          season: "Summer",
           species: [line(second, 0), line(first, 12)],
         };
         const response = await request("/planting-events", "POST", {
           ...input,
+          id: "ignored-caller-id",
           created_at: "2000-01-01T00:00:00Z",
           updated_by: "untrusted",
           deactivated_at: "2000-01-01",
@@ -295,6 +304,7 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           ...input,
           planting_date: "2024-02-29",
           event_type: "replacement" as const,
+          season: "autumn",
           notes: "Full replacement",
           image_url: "https://example.invalid/image.jpg",
           is_public: true,
@@ -353,6 +363,65 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
         saved = await update(saved, { ...input, species: [] });
         deepStrictEqual(saved.species, []);
         saved = await update(saved, input);
+        await remove(saved.id);
+      },
+    );
+
+    await t.step(
+      "server-generated count IDs on create and update retain existing lines and require catalogue links",
+      async () => {
+        const input = {
+          ...body(site),
+          season: "Late summer / Raumati",
+          image_url: "https://example.invalid/season.jpg",
+          species: [{ species_id: first.id, quantity: 5 }],
+        };
+        let saved = await create(input);
+        const originalId = saved.species[0].id;
+        saved = await update(saved, {
+          ...input,
+          season: "autumn",
+          species: [
+            { id: originalId, species_id: first.id, quantity: 8 },
+            { species_id: second.id, quantity: 3 },
+          ],
+        });
+        const added = saved.species.find((item) =>
+          item.species.id === second.id
+        );
+        ok(added);
+        ok(added.id !== originalId);
+        strictEqual(
+          saved.species.find((item) => item.species.id === first.id)?.id,
+          originalId,
+        );
+        const list = await readJson<PlantingEventListResponse[]>(
+          await request("/planting-events"),
+        );
+        deepStrictEqual(
+          list.find((item) => item.id === saved.id),
+          summary(saved),
+        );
+        const detail = await readJson<SiteResponse>(
+          await request(`/sites/${site.id}`),
+        );
+        deepStrictEqual(
+          detail.planting_events.find((item) => item.id === saved.id),
+          summary(saved),
+        );
+        for (const species_id of [null, undefined]) {
+          await expectError(
+            await request(`/planting-events/${saved.id}`, "PUT", {
+              ...input,
+              species: [{ species_id, quantity: 1 }],
+            }),
+            409,
+            "conflict",
+          );
+          deepStrictEqual(await get(saved.id), saved);
+        }
+        saved = await update(saved, { ...input, season: "", species: [] });
+        strictEqual(saved.season, "");
         await remove(saved.id);
       },
     );
@@ -432,11 +501,6 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           409,
           "conflict",
         );
-        await expectError(
-          await request(`/planting-events/${failed.id}`),
-          404,
-          "not_found",
-        );
         const retry = await create({ ...failed, species: [line(first, 1)] });
         await remove(retry.id);
         await remove(saved.id);
@@ -451,6 +515,8 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
         const saved = await create(input);
         const invalidBodies = [
           { ...input, event_type: "unknown" },
+          { ...input, season: null },
+          { ...input, season: "bad\u0000season" },
           { ...input, planting_date: "2025-02-29" },
           { ...input, planting_date: "not-a-date" },
           { ...input, planting_date: "10000-01-01" },
@@ -493,11 +559,6 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           await request("/planting-events", "POST", failed),
           409,
           "conflict",
-        );
-        await expectError(
-          await request(`/planting-events/${failed.id}`),
-          404,
-          "not_found",
         );
         const retry = await create({ ...failed, species: [] });
         const exact = await update(retry, {
@@ -669,6 +730,8 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
         const one = await create({
           ...body(parent),
           planting_date: "2026-01-01",
+          season: "Summer",
+          image_url: "https://example.invalid/history.jpg",
           planting_area_id: child.id,
           species: [line(a, 10), line(b, 3)],
         });
@@ -864,13 +927,10 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           ).length,
           1,
         );
-        for (const item of contenders) {
-          if (events.has(item.id)) await remove(item.id);
-          else {await expectError(
-              await request(`/planting-events/${item.id}`),
-              404,
-              "not_found",
-            );}
+        for (const claim of claims) {
+          if (claim.status === "fulfilled" && claim.value !== null) {
+            await remove(claim.value);
+          }
         }
       },
     );

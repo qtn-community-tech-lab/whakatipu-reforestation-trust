@@ -35,13 +35,12 @@ export interface SiteResponse extends SiteListResponse {
   location: { id: Id; geometry: Geometry } | null;
   totals: { planting_event_count: number; total_plants: number };
   species_totals: {
-    /** Null when the catalogue reference is not visible to the caller. */
     species: {
       id: Id;
       scientific_name: string;
       common_name: string;
       image_url: string;
-    } | null;
+    };
     quantity: number;
   }[];
   /** Complete related arrays, restricted to records visible to the caller. */
@@ -77,13 +76,12 @@ export interface PlantingAreaResponse extends PlantingAreaListResponse {
   location: { id: Id; geometry: Geometry } | null;
   totals: { planting_event_count: number; total_plants: number };
   species_totals: {
-    /** Null when the catalogue reference is not visible to the caller. */
     species: {
       id: Id;
       scientific_name: string;
       common_name: string;
       image_url: string;
-    } | null;
+    };
     quantity: number;
   }[];
   planting_events: PlantingEventListResponse[];
@@ -98,9 +96,8 @@ export interface PlantingAreaUpdateRequest {
   is_public: boolean;
 }
 
-export interface PlantingAreaCreateRequest extends PlantingAreaUpdateRequest {
-  id: Id;
-}
+/** POST generates the planting-area ID on the server. */
+export type PlantingAreaCreateRequest = PlantingAreaUpdateRequest;
 
 // Species
 
@@ -145,9 +142,12 @@ export interface PlantingEventListResponse {
   planting_area: { id: Id; name: string } | null;
   planting_date: CalendarDate;
   event_type: PlantingEventType;
+  /** Free text, e.g. "Summer" or "autumn"; empty when unspecified. */
+  season: string;
   /** Visible positive-quantity species, for client-side filtering. */
   species_ids: Id[];
   total_plants: number;
+  image_url: string;
   is_public: boolean;
 }
 
@@ -157,25 +157,21 @@ export interface PlantingEventResponse extends PlantingEventListResponse {
   created_at: Timestamp;
   updated_at: Timestamp;
   notes: string;
-  image_url: string;
   /** Active visible area's location, falling back to the site's location. */
   location: { id: Id; geometry: Geometry } | null;
-  /** Editors get every actual line. Public hidden quantities form one null group. */
-  species: (
-    | {
-      /** Event-species row ID, retained when editing. */
+  /** Every quantity is linked to a catalogue species, including inactive references. */
+  species: {
+    /** Event-species row ID, retained when editing. */
+    id: Id;
+    species: {
       id: Id;
-      species: {
-        id: Id;
-        scientific_name: string;
-        common_name: string;
-        image_url: string;
-        is_active: boolean;
-      };
-      quantity: number;
-    }
-    | { id: null; species: null; quantity: number }
-  )[];
+      scientific_name: string;
+      common_name: string;
+      image_url: string;
+      is_active: boolean;
+    };
+    quantity: number;
+  }[];
 }
 
 export interface PlantingEventUpdateRequest {
@@ -183,21 +179,23 @@ export interface PlantingEventUpdateRequest {
   planting_area_id: Id | null;
   planting_date: CalendarDate;
   event_type: PlantingEventType;
+  /** Free text, e.g. "Summer" or "autumn"; empty when unspecified. */
+  season: string;
   notes: string;
   image_url: string;
   is_public: boolean;
   /** Complete desired line set; omitted existing rows are soft-deactivated. */
   species: {
-    /** Caller-generated for new rows, retained for existing rows. */
-    id: Id;
+    /** Omit for a new count row; retain the returned ID when editing an existing row. */
+    id?: Id;
+    /** Catalogue ID from POST /species; required even for a new count row. */
     species_id: Id;
     quantity: number;
   }[];
 }
 
-export interface PlantingEventCreateRequest extends PlantingEventUpdateRequest {
-  id: Id;
-}
+/** POST generates the planting-event ID on the server. */
+export type PlantingEventCreateRequest = PlantingEventUpdateRequest;
 
 export interface ErrorResponse {
   error: {

@@ -1,3 +1,4 @@
+import { generateUniqueID, IdPrefixes } from "../_shared/ids.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   PlantingEventListResponse,
@@ -26,6 +27,7 @@ function eventResponse(result: PlantingEventDetailRows): PlantingEventResponse {
     },
     planting_date: event.planting_date,
     event_type: event.event_type,
+    season: event.season,
     species_ids: result.lines.filter((line) =>
       line.quantity > 0 && line.species.deactivated_at === null
     ).map((line) => line.species.id),
@@ -118,11 +120,12 @@ export async function savePlantingEvent(
     p_planting_area_id: body.planting_area_id ?? "",
     p_planting_date: body.planting_date,
     p_event_type: body.event_type,
+    p_season: body.season,
     p_notes: body.notes,
     p_image_url: body.image_url,
     p_is_public: body.is_public,
     p_species: body.species.map((line) => ({
-      id: line.id,
+      id: line.id ?? generateUniqueID(IdPrefixes.PLANTING_EVENT_SPECIES),
       species_id: line.species_id,
       quantity: line.quantity,
     })),

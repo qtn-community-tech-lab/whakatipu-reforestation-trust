@@ -38,7 +38,6 @@ async function createSite(
 
 function areaBody(site: SiteResponse, name: string): PlantingAreaCreateRequest {
   return {
-    id: generateUniqueID(IdPrefixes.PLANTING_AREA),
     site_id: site.id,
     name: `${runName} ${name}`,
     description: "Created through the planting-area HTTP API",
@@ -98,7 +97,7 @@ async function create(
     response.headers.get("Location"),
     `/functions/v1/api/planting-areas/${saved.id}`,
   );
-  strictEqual(saved.id, body.id);
+  match(saved.id, /^are_[a-z0-9]{12}$/);
   deepStrictEqual(saved, expectedDetail(saved, body, site));
   ok(Number.isFinite(Date.parse(saved.created_at)));
   strictEqual(saved.created_at, saved.updated_at);
@@ -193,11 +192,9 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
           "not_found",
         );
         await remove(saved.id);
-        await expectError(
-          await request("/planting-areas", "POST", body),
-          409,
-          "conflict",
-        );
+        const recreated = await create(body, site);
+        ok(recreated.id !== saved.id);
+        await remove(recreated.id);
         deepStrictEqual(
           await readJson(await request(`/sites/${site.id}`)),
           site,
@@ -266,6 +263,7 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
         const body = areaBody(site, "ignored fields");
         const injected = {
           ...body,
+          id: "ignored-caller-id",
           created_by: "usr_doesnotexist",
           updated_by: "usr_doesnotexist",
           created_at: "2000-01-01T00:00:00Z",
@@ -335,14 +333,7 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
           409,
           "conflict",
         );
-        await expectError(
-          await request("/planting-areas", "POST", {
-            ...body,
-            location: pin(),
-          }),
-          409,
-          "conflict",
-        );
+
         deepStrictEqual(
           await readJson(await request(`/planting-areas/${saved.id}`)),
           saved,
@@ -437,13 +428,9 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
           "validation_error",
         );
         await create({ ...invalid, name: `${runName} recovered` }, site);
-        await expectError(
-          await request("/planting-areas", "POST", {
-            ...areaBody(site, "invalid id"),
-            id: "short",
-          }),
-          400,
-          "validation_error",
+        await create(
+          { ...areaBody(site, "ignored id"), ...{ id: "short" } },
+          site,
         );
       },
     );
@@ -546,13 +533,6 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
           ...site,
           planting_areas: saved.map(listItem),
         });
-        const loser = bodies.find((body) => body.id !== saved[0].id);
-        ok(loser);
-        await expectError(
-          await request(`/planting-areas/${loser.id}`),
-          404,
-          "not_found",
-        );
       },
     );
 

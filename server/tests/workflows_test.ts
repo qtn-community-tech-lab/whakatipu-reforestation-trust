@@ -79,11 +79,11 @@ function line(catalogue: SpeciesResponse, quantity: number) {
 
 function eventBody(parent: SiteResponse): PlantingEventCreateRequest {
   return {
-    id: generateUniqueID(IdPrefixes.PLANTING_EVENT),
     site_id: parent.id,
     planting_area_id: null,
     planting_date: "2026-10-19",
     event_type: "establishment",
+    season: "",
     notes: "",
     image_url: "",
     is_public: false,
@@ -120,6 +120,8 @@ function summary(saved: PlantingEventResponse): PlantingEventListResponse {
       : null,
     planting_date: saved.planting_date,
     event_type: saved.event_type,
+    season: saved.season,
+    image_url: saved.image_url,
     species_ids: saved.species_ids,
     total_plants: saved.total_plants,
     is_public: saved.is_public,
@@ -634,11 +636,6 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           await removeEvent(saved.id);
         } else {
           await expectError(createResult.value, 409, "conflict");
-          await expectError(
-            await request(`/planting-events/${input.id}`),
-            404,
-            "not_found",
-          );
           await expectSite(parent.id, 0, 0, []);
         }
         await expectError(
@@ -1000,11 +997,6 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           409,
           "conflict",
         );
-        await expectError(
-          await request(`/planting-events/${replacementInput.id}`),
-          404,
-          "not_found",
-        );
         const replacement = await createEvent({
           ...replacementInput,
           species: [],
@@ -1065,7 +1057,7 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
     );
 
     await t.step(
-      "opaque IDs survive Unicode and reserved URL characters through create, Location, update and delete",
+      "server IDs ignore supplied Unicode and reserved URL characters on create and update",
       async () => {
         const parent = await site("opaque IDs");
         const id = `are_${
@@ -1080,16 +1072,15 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           location: null,
           is_public: false,
         };
-        // Track supplied IDs before POST, including a possible failure after commit.
-        areaIds.add(id);
         const response = await request("/planting-areas", "POST", input);
         const saved = await readJson<PlantingAreaResponse>(response, 201);
+        areaIds.add(saved.id);
         strictEqual(
           response.headers.get("Location"),
-          `/functions/v1/api/planting-areas/${encodeURIComponent(id)}`,
+          `/functions/v1/api/planting-areas/${encodeURIComponent(saved.id)}`,
         );
-        strictEqual(saved.id, id);
-        const path = `/planting-areas/${encodeURIComponent(id)}`;
+        ok(saved.id !== id);
+        const path = `/planting-areas/${encodeURIComponent(saved.id)}`;
         deepStrictEqual(
           await readJson<PlantingAreaResponse>(await request(path)),
           saved,
@@ -1097,20 +1088,20 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         const renamed = await readJson<PlantingAreaResponse>(
           await request(path, "PUT", { ...input, name: "Updated opaque ID" }),
         );
-        strictEqual(renamed.id, id);
+        strictEqual(renamed.id, saved.id);
         const eventInput = {
           ...eventBody(parent),
           id: `pev_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}#%é🌱`,
-          planting_area_id: id,
+          planting_area_id: saved.id,
         };
-        eventIds.add(eventInput.id);
         const created = await request("/planting-events", "POST", eventInput);
         const event = await readJson<PlantingEventResponse>(created, 201);
+        eventIds.add(event.id);
         strictEqual(
           created.headers.get("Location"),
           `/functions/v1/api/planting-events/${encodeURIComponent(event.id)}`,
         );
-        strictEqual(event.id, eventInput.id);
+        ok(event.id !== eventInput.id);
         deepStrictEqual(
           await readJson<PlantingEventResponse>(
             await request(`/planting-events/${encodeURIComponent(event.id)}`),

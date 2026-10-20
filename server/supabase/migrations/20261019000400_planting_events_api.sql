@@ -69,7 +69,7 @@ begin
     select row(event.id, site.id, site.name, site.is_public, area.id, area.name,
       event.planting_date, event.event_type,
       coalesce(quantities.species_ids, '{}'::text[]),
-      quantities.total_plants, event.is_public)::public.species_event_row
+      quantities.total_plants, event.is_public, event.season, event.image_url)::public.species_event_row
     from public.planting_events event
     join public.sites site on site.id = event.site_id and site.deactivated_at is null
     left join public.planting_areas area
@@ -99,7 +99,7 @@ $$;
 create function public.planting_event_save(
   p_create boolean, p_id text, p_actor_id text, p_site_id text,
   p_planting_area_id text, p_planting_date date, p_event_type text,
-  p_notes text, p_image_url text, p_is_public boolean, p_species jsonb
+  p_notes text, p_image_url text, p_is_public boolean, p_species jsonb, p_season text
 )
 returns setof public.planting_event_detail_rows
 language plpgsql security invoker
@@ -177,13 +177,13 @@ begin
   if p_create then
     insert into public.planting_events
       (id, created_by, updated_by, created_at, updated_at, site_id, planting_area_id,
-       planting_date, event_type, notes, image_url, is_public)
+       planting_date, event_type, notes, image_url, is_public, season)
     values (p_id, p_actor_id, p_actor_id, changed_at, changed_at, p_site_id, area_id,
-      p_planting_date, p_event_type, p_notes, p_image_url, p_is_public);
+      p_planting_date, p_event_type, p_notes, p_image_url, p_is_public, p_season);
   else
     update public.planting_events set site_id = p_site_id, planting_area_id = area_id,
       planting_date = p_planting_date, event_type = p_event_type, notes = p_notes,
-      image_url = p_image_url, is_public = p_is_public,
+      image_url = p_image_url, is_public = p_is_public, season = p_season,
       updated_at = changed_at, updated_by = p_actor_id where id = p_id;
   end if;
   -- Temporarily deactivate active rows so species swaps cannot collide with
@@ -237,10 +237,10 @@ end;
 $$;
 
 revoke all on function public.planting_event_get(text), public.planting_event_list(),
-  public.planting_event_save(boolean, text, text, text, text, date, text, text, text, boolean, jsonb),
+  public.planting_event_save(boolean, text, text, text, text, date, text, text, text, boolean, jsonb, text),
   public.planting_event_deactivate(text, text) from public, anon, authenticated;
 grant execute on function public.planting_event_get(text), public.planting_event_list(),
-  public.planting_event_save(boolean, text, text, text, text, date, text, text, text, boolean, jsonb),
+  public.planting_event_save(boolean, text, text, text, text, date, text, text, text, boolean, jsonb, text),
   public.planting_event_deactivate(text, text) to service_role;
 revoke all on type public.event_species_row, public.planting_event_detail_rows from public, anon, authenticated;
 grant usage on type public.event_species_row, public.planting_event_detail_rows to service_role;

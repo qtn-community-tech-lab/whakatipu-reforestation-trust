@@ -84,6 +84,7 @@ export interface PlantingEvent extends EditableRow {
   /** Actual planting date, YYYY-MM-DD, stored as a database DATE. */
   planting_date: CalendarDate;
   event_type: PlantingEventType;
+  season: string;
   notes: string;
   image_url: string;
   is_public: boolean;

@@ -70,7 +70,7 @@ begin
     array(
       select row(e.id, site.id, site.name, site.is_public, area.id, area.name,
         e.planting_date, e.event_type, coalesce(q.species_ids, '{}'::text[]),
-        q.total_plants, e.is_public)::public.species_event_row
+        q.total_plants, e.is_public, e.season, e.image_url)::public.species_event_row
       from matching_events e
       join event_quantities q on q.id = e.id
       left join public.planting_areas area
