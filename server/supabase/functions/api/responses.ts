@@ -22,14 +22,14 @@ export interface PlantingEventSummaryRow {
   is_public: boolean;
 }
 
-export function position(geometry: Geometry | null): Position | null {
+export function position(geometry: Geometry | null) {
   // Phase one stores Points only; polygons remain a future contract extension.
-  return geometry?.type === "Point" ? geometry.coordinates : null;
+  return (
+    geometry?.type === "Point" ? geometry.coordinates : null
+  ) satisfies Position | null;
 }
 
-export function plantingEventListResponse(
-  event: PlantingEventSummaryRow,
-): PlantingEventListResponse {
+export function plantingEventListResponse(event: PlantingEventSummaryRow) {
   return {
     id: event.id,
     site: {
@@ -48,5 +48,5 @@ export function plantingEventListResponse(
     species_ids: event.species_ids,
     total_plants: event.total_plants,
     is_public: event.is_public,
-  };
+  } satisfies PlantingEventListResponse;
 }

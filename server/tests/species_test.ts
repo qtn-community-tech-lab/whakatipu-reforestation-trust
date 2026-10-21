@@ -16,7 +16,7 @@ const baseUrl = "http://127.0.0.1:54321/functions/v1/api";
 const runName = `WRT test ${crypto.randomUUID()}`;
 const createdIds = new Set<string>();
 
-function speciesBody(name: string): SpeciesUpdateRequest {
+function speciesBody(name: string) {
   return {
     scientific_name: `${runName} ${name}`,
     common_name: "Kōwhai",
@@ -24,10 +24,10 @@ function speciesBody(name: string): SpeciesUpdateRequest {
     description: "Created through the species HTTP API",
     image_url: "https://example.invalid/kowhai.jpg",
     is_public: false,
-  };
+  } satisfies SpeciesUpdateRequest;
 }
 
-async function create(body: SpeciesUpdateRequest): Promise<SpeciesResponse> {
+async function create(body: SpeciesUpdateRequest) {
   const response = await request("/species", "POST", body);
   const species = await readJson<SpeciesResponse>(response, 201);
   // Track immediately so later assertion failures still clean up the saved row.
@@ -36,13 +36,10 @@ async function create(body: SpeciesUpdateRequest): Promise<SpeciesResponse> {
     response.headers.get("Location"),
     `/functions/v1/api/species/${species.id}`,
   );
-  return species;
+  return species satisfies SpeciesResponse;
 }
 
-function expectedDetail(
-  saved: SpeciesResponse,
-  body: SpeciesUpdateRequest,
-): SpeciesResponse {
+function expectedDetail(saved: SpeciesResponse, body: SpeciesUpdateRequest) {
   return {
     id: saved.id,
     ...body,
@@ -50,10 +47,10 @@ function expectedDetail(
     updated_at: saved.updated_at,
     totals: { planting_event_count: 0, total_plants: 0 },
     planting_events: [],
-  };
+  } satisfies SpeciesResponse;
 }
 
-function listItem(species: SpeciesResponse): SpeciesListResponse {
+function listItem(species: SpeciesResponse) {
   return {
     id: species.id,
     scientific_name: species.scientific_name,
@@ -61,10 +58,10 @@ function listItem(species: SpeciesResponse): SpeciesListResponse {
     image_url: species.image_url,
     aliases: species.aliases,
     is_public: species.is_public,
-  };
+  } satisfies SpeciesListResponse;
 }
 
-async function remove(id: string): Promise<void> {
+async function remove(id: string) {
   const response = await request(`/species/${id}`, "DELETE");
   const text = await response.text();
   strictEqual(response.status, 204, text);
@@ -285,7 +282,7 @@ Deno.test("species HTTP endpoints with local Supabase", async (t) => {
         await inBatches(
           Array.from({ length: 1001 }, (_, index) => index),
           async (index) => {
-            const body = speciesBody(
+            const body: SpeciesUpdateRequest = speciesBody(
               `catalogue ${String(Math.floor(index / 2)).padStart(4, "0")}`,
             );
             body.is_public = index % 2 === 0;
@@ -302,7 +299,10 @@ Deno.test("species HTTP endpoints with local Supabase", async (t) => {
         const list = await readJson<SpeciesListResponse[]>(
           await request("/species"),
         );
-        deepStrictEqual(list.filter((row) => ids.has(row.id)), expected);
+        deepStrictEqual(
+          list.filter((row) => ids.has(row.id)),
+          expected,
+        );
         strictEqual(new Set(list.map((row) => row.id)).size, list.length);
         const ignoredQuery = await readJson<SpeciesListResponse[]>(
           await request("/species?limit=1&offset=999999&is_public=true"),

@@ -18,9 +18,6 @@ create table public.users (
   constraint users_updated_by_fkey
     foreign key (updated_by) references public.users (id) on delete restrict,
   constraint users_updated_at_check check (updated_at >= created_at),
-  constraint users_email_nonblank_check check (length(btrim(email)) > 0),
-  constraint users_email_canonical_check check (email = lower(btrim(email))),
-  constraint users_display_name_nonblank_check check (length(btrim(display_name)) > 0),
   constraint users_auth_user_id_fkey
     foreign key (auth_user_id) references auth.users (id) on delete restrict
 );
@@ -35,7 +32,6 @@ values (
   'ktgcreative@gmail.com', 'Kyle Grattan'
 )
 on conflict (id) do nothing;
-
 
 create table public.locations (
   id text primary key constraint locations_id_length_check check (char_length(id) = 16),
@@ -76,7 +72,6 @@ create table public.sites (
   is_public boolean not null default false,
 
   constraint sites_updated_at_check check (updated_at >= created_at),
-  constraint sites_name_nonblank_check check (length(btrim(name)) > 0)
 );
 
 create table public.planting_areas (
@@ -93,7 +88,6 @@ create table public.planting_areas (
   is_public boolean not null default false,
 
   constraint planting_areas_updated_at_check check (updated_at >= created_at),
-  constraint planting_areas_name_nonblank_check check (length(btrim(name)) > 0)
 );
 
 create table public.species (
@@ -111,10 +105,6 @@ create table public.species (
   is_public boolean not null default false,
 
   constraint species_updated_at_check check (updated_at >= created_at),
-  constraint species_scientific_name_nonblank_check check (length(btrim(scientific_name)) > 0),
-  constraint species_common_name_nonblank_check check (length(btrim(common_name)) > 0),
-  constraint species_aliases_no_nulls_check check (array_position(aliases, null) is null),
-  constraint species_aliases_one_dimension_check check (coalesce(array_ndims(aliases), 1) = 1)
 );
 
 create table public.planting_events (
@@ -134,10 +124,6 @@ create table public.planting_events (
   is_public boolean not null default false,
 
   constraint planting_events_updated_at_check check (updated_at >= created_at),
-  constraint planting_events_date_year_check
-    check (extract(year from planting_date) between 1 and 9999),
-  constraint planting_events_type_check
-    check (event_type in ('establishment', 'infill', 'replacement'))
 );
 
 create table public.planting_event_species (
@@ -152,11 +138,17 @@ create table public.planting_event_species (
   quantity bigint not null,
 
   constraint planting_event_species_updated_at_check check (updated_at >= created_at),
-  constraint planting_event_species_quantity_check
-    check (quantity between 0 and 9007199254740991)
 );
 
 -- These indexes support the access paths described in the API specification.
+create index species_active_name_idx
+  on public.species (scientific_name, id) where deactivated_at is null;
+create index sites_active_name_idx
+  on public.sites (name, id) where deactivated_at is null;
+create index planting_areas_active_name_idx
+  on public.planting_areas (name, id) where deactivated_at is null;
+create index planting_events_active_date_idx
+  on public.planting_events (planting_date desc, id desc) where deactivated_at is null;
 create index planting_areas_site_id_idx on public.planting_areas (site_id);
 create index planting_events_site_date_idx
   on public.planting_events (site_id, planting_date desc, id desc)
@@ -191,9 +183,9 @@ revoke all privileges on table
   public.species,
   public.planting_events,
   public.planting_event_species
-from public, anon, authenticated;
+from public, anon, authenticated, service_role;
 
-grant all privileges on table
+grant select, insert, update on table
   public.users,
   public.locations,
   public.sites,
@@ -208,5 +200,14 @@ alter default privileges in schema public
   revoke all privileges on tables from public, anon, authenticated;
 alter default privileges in schema public
   revoke execute on functions from public, anon, authenticated;
+
+-- Keep the PostgREST role restricted; the Edge API connects through the
+-- transaction pool using its server-side database URL.
+alter default privileges for role postgres
+  revoke execute on functions from public;
+alter default privileges for role postgres in schema public
+  revoke execute on functions from anon, authenticated, service_role;
+alter default privileges for role postgres in schema public
+  revoke all privileges on tables from anon, authenticated, service_role;
 
 commit;

@@ -17,16 +17,16 @@ const baseUrl = "http://127.0.0.1:54321/functions/v1/api";
 const runName = `WRT test ${crypto.randomUUID()}`;
 const createdIds = new Set<string>();
 
-function siteBody(name: string): SiteUpdateRequest {
+function siteBody(name: string) {
   return {
     name: `${runName} ${name}`,
     description: "Created through the sites HTTP API",
     location: null,
     is_public: false,
-  };
+  } satisfies SiteUpdateRequest;
 }
 
-async function create(body: SiteUpdateRequest): Promise<SiteResponse> {
+async function create(body: SiteUpdateRequest) {
   const response = await request("/sites", "POST", body);
   const site = await readJson<SiteResponse>(response, 201);
   // Track immediately so later assertion failures still clean up the saved row.
@@ -38,43 +38,42 @@ async function create(body: SiteUpdateRequest): Promise<SiteResponse> {
   match(site.id, /^sit_[a-z0-9]{12}$/);
   if (site.location) match(site.location.id, /^loc_[a-z0-9]{12}$/);
   deepStrictEqual(site, expectedDetail(site, body));
-  return site;
+  return site satisfies SiteResponse;
 }
 
-function expectedDetail(
-  saved: SiteResponse,
-  body: SiteUpdateRequest,
-): SiteResponse {
+function expectedDetail(saved: SiteResponse, body: SiteUpdateRequest) {
   return {
     id: saved.id,
     name: body.name,
     description: body.description,
     is_public: body.is_public,
-    position: body.location?.geometry.type === "Point"
-      ? body.location.geometry.coordinates
-      : null,
-    location: body.location === null
-      ? null
-      : { id: saved.location?.id ?? "", geometry: body.location.geometry },
+    position:
+      body.location?.geometry.type === "Point"
+        ? body.location.geometry.coordinates
+        : null,
+    location:
+      body.location === null
+        ? null
+        : { id: saved.location?.id ?? "", geometry: body.location.geometry },
     created_at: saved.created_at,
     updated_at: saved.updated_at,
     totals: { planting_event_count: 0, total_plants: 0 },
     planting_events: [],
     planting_areas: [],
     species_totals: [],
-  };
+  } satisfies SiteResponse;
 }
 
-function listItem(site: SiteResponse): SiteListResponse {
+function listItem(site: SiteResponse) {
   return {
     id: site.id,
     name: site.name,
     is_public: site.is_public,
     position: site.position,
-  };
+  } satisfies SiteListResponse;
 }
 
-async function remove(id: string): Promise<void> {
+async function remove(id: string) {
   const response = await request(`/sites/${id}`, "DELETE");
   const text = await response.text();
   strictEqual(response.status, 204, text);
@@ -280,17 +279,22 @@ Deno.test("sites HTTP endpoints with local Supabase", async (t) => {
           location: { geometry: { type: "Point", coordinates: [168, -45] } },
         };
         const saved = await create(body);
-        for (
-          const geometry of [
-            { type: "Point", coordinates: [181, 0] },
-            { type: "Point", coordinates: [0, -91] },
-            { type: "Point", coordinates: [0] },
-            {
-              type: "Polygon",
-              coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
-            },
-          ]
-        ) {
+        for (const geometry of [
+          { type: "Point", coordinates: [181, 0] },
+          { type: "Point", coordinates: [0, -91] },
+          { type: "Point", coordinates: [0] },
+          {
+            type: "Polygon",
+            coordinates: [
+              [
+                [0, 0],
+                [1, 0],
+                [1, 1],
+                [0, 0],
+              ],
+            ],
+          },
+        ]) {
           const invalid = { ...body, location: { geometry } };
           await expectError(
             await request("/sites", "POST", invalid),
@@ -307,11 +311,12 @@ Deno.test("sites HTTP endpoints with local Supabase", async (t) => {
             saved,
           );
         }
-        for (
-          const location of [null, {
+        for (const location of [
+          null,
+          {
             geometry: { type: "Point", coordinates: [170, -40] },
-          }]
-        ) {
+          },
+        ]) {
           await expectError(
             await request(`/sites/${saved.id}`, "PUT", {
               ...body,
@@ -353,15 +358,17 @@ Deno.test("sites HTTP endpoints with local Supabase", async (t) => {
             geometry: { type: "Point", coordinates: [168 + index, -45] },
           },
         }));
-        const results = await Promise.allSettled(bodies.map(async (body) => {
-          const updated = await readJson<SiteResponse>(
-            await request(`/sites/${saved.id}`, "PUT", body),
-          );
-          deepStrictEqual(updated, expectedDetail(updated, body));
-          strictEqual(updated.created_at, saved.created_at);
-          ok(updated.location);
-          return updated;
-        }));
+        const results = await Promise.allSettled(
+          bodies.map(async (body) => {
+            const updated = await readJson<SiteResponse>(
+              await request(`/sites/${saved.id}`, "PUT", body),
+            );
+            deepStrictEqual(updated, expectedDetail(updated, body));
+            strictEqual(updated.created_at, saved.created_at);
+            ok(updated.location);
+            return updated;
+          }),
+        );
         const updates: SiteResponse[] = [];
         for (const result of results) {
           if (result.status === "rejected") throw result.reason;
@@ -371,8 +378,8 @@ Deno.test("sites HTTP endpoints with local Supabase", async (t) => {
         const final = await readJson<SiteResponse>(
           await request(`/sites/${saved.id}`),
         );
-        const latest = updates.find((updated) =>
-          updated.updated_at === final.updated_at
+        const latest = updates.find(
+          (updated) => updated.updated_at === final.updated_at,
         );
         deepStrictEqual(final, latest);
       },
@@ -432,9 +439,7 @@ Deno.test("sites HTTP endpoints with local Supabase", async (t) => {
         const list = await readJson<SiteListResponse[]>(
           await request("/sites"),
         );
-        ok(
-          !list.some((row) => row.name === invalid.name),
-        );
+        ok(!list.some((row) => row.name === invalid.name));
       },
     );
 
@@ -491,7 +496,7 @@ Deno.test("sites HTTP endpoints with local Supabase", async (t) => {
         await inBatches(
           Array.from({ length: 1001 }, (_, index) => index),
           async (index) => {
-            const body = siteBody(
+            const body: SiteUpdateRequest = siteBody(
               `site ${String(Math.floor(index / 2)).padStart(4, "0")}`,
             );
             body.is_public = index % 2 === 0;
@@ -513,7 +518,10 @@ Deno.test("sites HTTP endpoints with local Supabase", async (t) => {
         const list = await readJson<SiteListResponse[]>(
           await request("/sites"),
         );
-        deepStrictEqual(list.filter((row) => ids.has(row.id)), expected);
+        deepStrictEqual(
+          list.filter((row) => ids.has(row.id)),
+          expected,
+        );
         strictEqual(new Set(list.map((row) => row.id)).size, list.length);
         const ignoredQuery = await readJson<SiteListResponse[]>(
           await request("/sites?limit=1&offset=999999&is_public=true"),

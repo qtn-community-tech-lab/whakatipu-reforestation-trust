@@ -19,10 +19,7 @@ const sites = new Map<string, SiteResponse>();
 const areaParents = new Map<string, string>();
 const deletedSites = new Set<string>();
 
-async function createSite(
-  name: string,
-  isPublic = false,
-): Promise<SiteResponse> {
+async function createSite(name: string, isPublic = false) {
   const site = await readJson<SiteResponse>(
     await request("/sites", "POST", {
       name: `${runName} ${name}`,
@@ -33,63 +30,61 @@ async function createSite(
     201,
   );
   sites.set(site.id, site);
-  return site;
+  return site satisfies SiteResponse;
 }
 
-function areaBody(site: SiteResponse, name: string): PlantingAreaCreateRequest {
+function areaBody(site: SiteResponse, name: string) {
   return {
     site_id: site.id,
     name: `${runName} ${name}`,
     description: "Created through the planting-area HTTP API",
     location: null,
     is_public: false,
-  };
+  } satisfies PlantingAreaCreateRequest;
 }
 
-function pin(): { id: string; geometry: Geometry } {
+function pin() {
   return {
     id: generateUniqueID(IdPrefixes.LOCATION),
     geometry: { type: "Point", coordinates: [169, -44] },
-  };
+  } satisfies { id: string; geometry: Geometry };
 }
 
 function expectedDetail(
   saved: PlantingAreaResponse,
   body: PlantingAreaUpdateRequest,
   site: SiteResponse,
-): PlantingAreaResponse {
+) {
   return {
     id: saved.id,
     name: body.name,
     site: { id: site.id, name: site.name, is_public: site.is_public },
     description: body.description,
     is_public: body.is_public,
-    position: body.location?.geometry.type === "Point"
-      ? body.location.geometry.coordinates
-      : null,
+    position:
+      body.location?.geometry.type === "Point"
+        ? body.location.geometry.coordinates
+        : null,
     location: body.location,
     created_at: saved.created_at,
     updated_at: saved.updated_at,
     totals: { planting_event_count: 0, total_plants: 0 },
     species_totals: [],
     planting_events: [],
-  };
+  } satisfies PlantingAreaResponse;
 }
 
-function listItem(area: PlantingAreaResponse): PlantingAreaListResponse {
+function listItem(area: PlantingAreaResponse) {
   return {
     id: area.id,
     name: area.name,
     site: area.site,
     position: area.position,
     is_public: area.is_public,
-  };
+  } satisfies PlantingAreaListResponse;
 }
 
-async function create(
-  body: PlantingAreaCreateRequest,
-  site: SiteResponse,
-): Promise<PlantingAreaResponse> {
+async function create(body: PlantingAreaCreateRequest, site: SiteResponse) {
   const response = await request("/planting-areas", "POST", body);
   const saved = await readJson<PlantingAreaResponse>(response, 201);
   areaParents.set(saved.id, site.id);
@@ -101,14 +96,14 @@ async function create(
   deepStrictEqual(saved, expectedDetail(saved, body, site));
   ok(Number.isFinite(Date.parse(saved.created_at)));
   strictEqual(saved.created_at, saved.updated_at);
-  return saved;
+  return saved satisfies PlantingAreaResponse;
 }
 
 async function update(
   id: string,
   body: PlantingAreaUpdateRequest,
   site: SiteResponse,
-): Promise<PlantingAreaResponse> {
+) {
   const saved = await readJson<PlantingAreaResponse>(
     await request(`/planting-areas/${id}`, "PUT", body),
   );
@@ -118,10 +113,10 @@ async function update(
     await readJson(await request(`/planting-areas/${id}`)),
     saved,
   );
-  return saved;
+  return saved satisfies PlantingAreaResponse;
 }
 
-async function remove(id: string): Promise<void> {
+async function remove(id: string) {
   const response = await request(`/planting-areas/${id}`, "DELETE");
   const parent = areaParents.get(id);
   if (parent && deletedSites.has(parent)) {
@@ -133,7 +128,7 @@ async function remove(id: string): Promise<void> {
   areaParents.delete(id);
 }
 
-async function removeSite(id: string): Promise<void> {
+async function removeSite(id: string) {
   const response = await request(`/sites/${id}`, "DELETE");
   strictEqual(response.status, 204, await response.text());
   sites.delete(id);
@@ -363,17 +358,22 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
             "validation_error",
           );
         }
-        for (
-          const geometry of [
-            { type: "Point", coordinates: [181, 0] },
-            { type: "Point", coordinates: [0, 91] },
-            { type: "Point", coordinates: [0] },
-            {
-              type: "Polygon",
-              coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
-            },
-          ]
-        ) {
+        for (const geometry of [
+          { type: "Point", coordinates: [181, 0] },
+          { type: "Point", coordinates: [0, 91] },
+          { type: "Point", coordinates: [0] },
+          {
+            type: "Polygon",
+            coordinates: [
+              [
+                [0, 0],
+                [1, 0],
+                [1, 1],
+                [0, 0],
+              ],
+            ],
+          },
+        ]) {
           await expectError(
             await request("/planting-areas", "POST", {
               ...areaBody(site, "invalid point"),
@@ -395,12 +395,14 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
             saved,
           );
         }
-        for (
-          const location of [null, pin(), {
+        for (const location of [
+          null,
+          pin(),
+          {
             ...body.location,
             geometry: pin().geometry,
-          }]
-        ) {
+          },
+        ]) {
           await expectError(
             await request(`/planting-areas/${saved.id}`, "PUT", {
               ...body,
@@ -512,17 +514,19 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
           areaBody(site, "claim one"),
           areaBody(site, "claim two"),
         ].map((body) => ({ ...body, location }));
-        const results = await Promise.allSettled(bodies.map(async (body) => {
-          const response = await request("/planting-areas", "POST", body);
-          if (response.status === 201) {
-            const saved = await readJson<PlantingAreaResponse>(response, 201);
-            areaParents.set(saved.id, site.id);
-            deepStrictEqual(saved, expectedDetail(saved, body, site));
-            return saved;
-          }
-          await expectError(response, 409, "conflict");
-          return null;
-        }));
+        const results = await Promise.allSettled(
+          bodies.map(async (body) => {
+            const response = await request("/planting-areas", "POST", body);
+            if (response.status === 201) {
+              const saved = await readJson<PlantingAreaResponse>(response, 201);
+              areaParents.set(saved.id, site.id);
+              deepStrictEqual(saved, expectedDetail(saved, body, site));
+              return saved;
+            }
+            await expectError(response, 409, "conflict");
+            return null;
+          }),
+        );
         const saved: PlantingAreaResponse[] = [];
         for (const result of results) {
           if (result.status === "rejected") throw result.reason;
@@ -542,27 +546,32 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
         const site = await createSite("concurrent saves");
         const body = { ...areaBody(site, "concurrent saves"), location: pin() };
         const saved = await create(body, site);
-        const results = await Promise.allSettled([1, 2].map(async (index) => {
-          const geometry: Geometry = {
-            type: "Point",
-            coordinates: [168 + index, -45],
-          };
-          const replacement = {
-            ...body,
-            name: `${runName} save ${index}`,
-            is_public: index === 1,
-            location: { id: body.location.id, geometry },
-          };
-          // A later GET may already see the other save. Check each PUT's own
-          // transactional result here, then check final state after both finish.
-          const updated = await readJson<PlantingAreaResponse>(
-            await request(`/planting-areas/${saved.id}`, "PUT", replacement),
-          );
-          deepStrictEqual(updated, expectedDetail(updated, replacement, site));
-          strictEqual(updated.id, saved.id);
-          strictEqual(updated.created_at, saved.created_at);
-          return updated;
-        }));
+        const results = await Promise.allSettled(
+          [1, 2].map(async (index) => {
+            const geometry: Geometry = {
+              type: "Point",
+              coordinates: [168 + index, -45],
+            };
+            const replacement = {
+              ...body,
+              name: `${runName} save ${index}`,
+              is_public: index === 1,
+              location: { id: body.location.id, geometry },
+            };
+            // A later GET may already see the other save. Check each PUT's own
+            // transactional result here, then check final state after both finish.
+            const updated = await readJson<PlantingAreaResponse>(
+              await request(`/planting-areas/${saved.id}`, "PUT", replacement),
+            );
+            deepStrictEqual(
+              updated,
+              expectedDetail(updated, replacement, site),
+            );
+            strictEqual(updated.id, saved.id);
+            strictEqual(updated.created_at, saved.created_at);
+            return updated;
+          }),
+        );
         const updates: PlantingAreaResponse[] = [];
         for (const result of results) {
           if (result.status === "rejected") throw result.reason;
@@ -583,9 +592,10 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
       async () => {
         const site = await createSite("HTTP methods");
         const saved = await create(areaBody(site, "HTTP methods"), site);
-        for (
-          const id of [generateUniqueID(IdPrefixes.PLANTING_AREA), "not-an-id"]
-        ) {
+        for (const id of [
+          generateUniqueID(IdPrefixes.PLANTING_AREA),
+          "not-an-id",
+        ]) {
           await expectError(
             await request(`/planting-areas/${id}`),
             404,
@@ -654,7 +664,7 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
         await inBatches(
           Array.from({ length: 1001 }, (_, index) => index),
           async (index) => {
-            const body = areaBody(
+            const body: PlantingAreaCreateRequest = areaBody(
               site,
               `area ${String(Math.floor(index / 2)).padStart(4, "0")}`,
             );
@@ -663,16 +673,25 @@ Deno.test("planting-area HTTP endpoints with local Supabase", async (t) => {
             saved.push(await create(body, site));
           },
         );
-        const expected = saved.map(listItem).sort((a, b) =>
-          a.name !== b.name
-            ? (a.name < b.name ? -1 : 1)
-            : (a.id < b.id ? -1 : 1)
-        );
+        const expected = saved
+          .map(listItem)
+          .sort((a, b) =>
+            a.name !== b.name
+              ? a.name < b.name
+                ? -1
+                : 1
+              : a.id < b.id
+                ? -1
+                : 1,
+          );
         const ids = new Set(saved.map((row) => row.id));
         const list = await readJson<PlantingAreaListResponse[]>(
           await request("/planting-areas"),
         );
-        deepStrictEqual(list.filter((row) => ids.has(row.id)), expected);
+        deepStrictEqual(
+          list.filter((row) => ids.has(row.id)),
+          expected,
+        );
         strictEqual(new Set(list.map((row) => row.id)).size, list.length);
         deepStrictEqual(
           await readJson(

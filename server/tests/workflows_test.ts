@@ -20,7 +20,7 @@ const areaIds = new Set<string>();
 const siteIds = new Set<string>();
 const speciesIds = new Set<string>();
 
-async function site(name: string): Promise<SiteResponse> {
+async function site(name: string) {
   const saved = await readJson<SiteResponse>(
     await request("/sites", "POST", {
       name: `${runName} ${name}`,
@@ -31,10 +31,10 @@ async function site(name: string): Promise<SiteResponse> {
     201,
   );
   siteIds.add(saved.id);
-  return saved;
+  return saved satisfies SiteResponse;
 }
 
-async function area(parent: SiteResponse): Promise<PlantingAreaResponse> {
+async function area(parent: SiteResponse) {
   const saved = await readJson<PlantingAreaResponse>(
     await request("/planting-areas", "POST", {
       id: generateUniqueID(IdPrefixes.PLANTING_AREA),
@@ -50,10 +50,10 @@ async function area(parent: SiteResponse): Promise<PlantingAreaResponse> {
     201,
   );
   areaIds.add(saved.id);
-  return saved;
+  return saved satisfies PlantingAreaResponse;
 }
 
-async function species(name: string): Promise<SpeciesResponse> {
+async function species(name: string) {
   const saved = await readJson<SpeciesResponse>(
     await request("/species", "POST", {
       scientific_name: `${runName} ${name}`,
@@ -66,7 +66,7 @@ async function species(name: string): Promise<SpeciesResponse> {
     201,
   );
   speciesIds.add(saved.id);
-  return saved;
+  return saved satisfies SpeciesResponse;
 }
 
 function line(catalogue: SpeciesResponse, quantity: number) {
@@ -77,7 +77,7 @@ function line(catalogue: SpeciesResponse, quantity: number) {
   };
 }
 
-function eventBody(parent: SiteResponse): PlantingEventCreateRequest {
+function eventBody(parent: SiteResponse) {
   return {
     site_id: parent.id,
     planting_area_id: null,
@@ -88,30 +88,25 @@ function eventBody(parent: SiteResponse): PlantingEventCreateRequest {
     image_url: "",
     is_public: false,
     species: [],
-  };
+  } satisfies PlantingEventCreateRequest;
 }
 
-async function createEvent(
-  input: PlantingEventCreateRequest,
-): Promise<PlantingEventResponse> {
+async function createEvent(input: PlantingEventCreateRequest) {
   const saved = await readJson<PlantingEventResponse>(
     await request("/planting-events", "POST", input),
     201,
   );
   eventIds.add(saved.id);
-  return saved;
+  return saved satisfies PlantingEventResponse;
 }
 
-async function saveEvent(
-  id: string,
-  input: PlantingEventUpdateRequest,
-): Promise<PlantingEventResponse> {
-  return await readJson<PlantingEventResponse>(
+async function saveEvent(id: string, input: PlantingEventUpdateRequest) {
+  return (await readJson<PlantingEventResponse>(
     await request(`/planting-events/${encodeURIComponent(id)}`, "PUT", input),
-  );
+  )) satisfies PlantingEventResponse;
 }
 
-function summary(saved: PlantingEventResponse): PlantingEventListResponse {
+function summary(saved: PlantingEventResponse) {
   return {
     id: saved.id,
     site: saved.site,
@@ -125,7 +120,7 @@ function summary(saved: PlantingEventResponse): PlantingEventListResponse {
     species_ids: saved.species_ids,
     total_plants: saved.total_plants,
     is_public: saved.is_public,
-  };
+  } satisfies PlantingEventListResponse;
 }
 
 function compact(catalogue: SpeciesResponse) {
@@ -142,14 +137,14 @@ async function expectSite(
   count: number,
   quantity: number,
   history: PlantingEventResponse[],
-): Promise<SiteResponse> {
+) {
   const saved = await readJson<SiteResponse>(await request(`/sites/${id}`));
   deepStrictEqual(saved.totals, {
     planting_event_count: count,
     total_plants: quantity,
   });
   deepStrictEqual(saved.planting_events, history.map(summary));
-  return saved;
+  return saved satisfies SiteResponse;
 }
 
 async function expectArea(
@@ -157,7 +152,7 @@ async function expectArea(
   count: number,
   quantity: number,
   history: PlantingEventResponse[],
-): Promise<PlantingAreaResponse> {
+) {
   const saved = await readJson<PlantingAreaResponse>(
     await request(`/planting-areas/${id}`),
   );
@@ -166,7 +161,7 @@ async function expectArea(
     total_plants: quantity,
   });
   deepStrictEqual(saved.planting_events, history.map(summary));
-  return saved;
+  return saved satisfies PlantingAreaResponse;
 }
 
 async function expectSpecies(
@@ -174,7 +169,7 @@ async function expectSpecies(
   count: number,
   quantity: number,
   history: PlantingEventResponse[],
-): Promise<SpeciesResponse> {
+) {
   const saved = await readJson<SpeciesResponse>(
     await request(`/species/${id}`),
   );
@@ -183,10 +178,10 @@ async function expectSpecies(
     total_plants: quantity,
   });
   deepStrictEqual(saved.planting_events, history.map(summary));
-  return saved;
+  return saved satisfies SpeciesResponse;
 }
 
-async function removeEvent(id: string): Promise<void> {
+async function removeEvent(id: string) {
   const response = await request(
     `/planting-events/${encodeURIComponent(id)}`,
     "DELETE",
@@ -196,16 +191,14 @@ async function removeEvent(id: string): Promise<void> {
   eventIds.delete(id);
 }
 
-async function cleanup(): Promise<void> {
+async function cleanup() {
   const failures: unknown[] = [];
-  for (
-    const [resource, ids] of [
-      ["planting-events", eventIds],
-      ["planting-areas", areaIds],
-      ["sites", siteIds],
-      ["species", speciesIds],
-    ] as const
-  ) {
+  for (const [resource, ids] of [
+    ["planting-events", eventIds],
+    ["planting-areas", areaIds],
+    ["sites", siteIds],
+    ["species", speciesIds],
+  ] as const) {
     await inBatches([...ids], async (id) => {
       try {
         const response = await request(
@@ -233,8 +226,10 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           destination = await site("destination");
         const sourceArea = await area(source),
           destinationArea = await area(destination);
-        const first = await species("move-a"), second = await species("move-b");
-        const firstLine = line(first, 10), secondLine = line(second, 5);
+        const first = await species("move-a"),
+          second = await species("move-b");
+        const firstLine = line(first, 10),
+          secondLine = line(second, 5);
         const input = {
           ...eventBody(source),
           planting_area_id: sourceArea.id,
@@ -243,10 +238,13 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         let saved = await createEvent(input);
         const createdAt = saved.created_at;
         const initialSite = await expectSite(source.id, 1, 15, [saved]);
-        deepStrictEqual(initialSite.species_totals, [{
-          species: compact(first),
-          quantity: 10,
-        }, { species: compact(second), quantity: 5 }]);
+        deepStrictEqual(initialSite.species_totals, [
+          {
+            species: compact(first),
+            quantity: 10,
+          },
+          { species: compact(second), quantity: 5 },
+        ]);
         await expectArea(sourceArea.id, 1, 15, [saved]);
         await expectSpecies(first.id, 1, 10, [saved]);
         await expectSpecies(second.id, 1, 5, [saved]);
@@ -256,10 +254,13 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           site_id: destination.id,
           planting_area_id: destinationArea.id,
           event_type: "infill" as const,
-          species: [{ ...firstLine, quantity: 4 }, {
-            ...secondLine,
-            quantity: 0,
-          }],
+          species: [
+            { ...firstLine, quantity: 4 },
+            {
+              ...secondLine,
+              quantity: 0,
+            },
+          ],
         };
         saved = await saveEvent(saved.id, moved);
         strictEqual(saved.created_at, createdAt);
@@ -357,11 +358,13 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
             is_active: true,
           },
           location: newSite.location,
-          species: [{
-            id: input.species[0].id,
-            species: { ...compact(newSpecies), is_active: true },
-            quantity: 3,
-          }],
+          species: [
+            {
+              id: input.species[0].id,
+              species: { ...compact(newSpecies), is_active: true },
+              quantity: 3,
+            },
+          ],
         });
         const list = await readJson<PlantingEventListResponse[]>(
           await request("/planting-events"),
@@ -372,17 +375,21 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         );
         await expectSpecies(catalogue.id, 1, 3, [current]);
         const siteDetail = await expectSite(parent.id, 1, 3, [current]);
-        deepStrictEqual(siteDetail.species_totals, [{
-          species: compact(newSpecies),
-          quantity: 3,
-        }]);
-        deepStrictEqual(siteDetail.planting_areas, [{
-          id: newArea.id,
-          name: newArea.name,
-          site: current.site,
-          position: null,
-          is_public: false,
-        }]);
+        deepStrictEqual(siteDetail.species_totals, [
+          {
+            species: compact(newSpecies),
+            quantity: 3,
+          },
+        ]);
+        deepStrictEqual(siteDetail.planting_areas, [
+          {
+            id: newArea.id,
+            name: newArea.name,
+            site: current.site,
+            position: null,
+            is_public: false,
+          },
+        ]);
         await expectArea(child.id, 1, 3, [current]);
         const noPin = await readJson<SiteResponse>(
           await request(`/sites/${parent.id}`, "PUT", {
@@ -424,13 +431,11 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           planting_area_id: child.id,
           species: [line(catalogue, 1)],
         });
-        for (
-          const path of [
-            `/sites/${parent.id}`,
-            `/planting-areas/${child.id}`,
-            `/species/${catalogue.id}`,
-          ]
-        ) {
+        for (const path of [
+          `/sites/${parent.id}`,
+          `/planting-areas/${child.id}`,
+          `/species/${catalogue.id}`,
+        ]) {
           await expectError(await request(path), 409, "conflict");
         }
         // Each event is safe; only their combined site/area/species sums overflow.
@@ -490,17 +495,21 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         deepStrictEqual(recoveredSite, {
           ...parent,
           totals: recoveredSite.totals,
-          species_totals: [{
-            species: compact(catalogue),
-            quantity: Number.MAX_SAFE_INTEGER,
-          }],
-          planting_areas: [{
-            id: child.id,
-            name: child.name,
-            site: maximum.site,
-            position: child.position,
-            is_public: false,
-          }],
+          species_totals: [
+            {
+              species: compact(catalogue),
+              quantity: Number.MAX_SAFE_INTEGER,
+            },
+          ],
+          planting_areas: [
+            {
+              id: child.id,
+              name: child.name,
+              site: maximum.site,
+              position: child.position,
+              is_public: false,
+            },
+          ],
           planting_events: [summary(maximum)],
         });
         const recoveredArea = await expectArea(
@@ -536,7 +545,8 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
     await t.step(
       "inactive area/species preserve site quantities and other species' whole-event history",
       async () => {
-        const parent = await site("history"), child = await area(parent);
+        const parent = await site("history"),
+          child = await area(parent);
         const retained = await species("history-a"),
           inactive = await species("history-b");
         const saved = await createEvent({
@@ -544,12 +554,10 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           planting_area_id: child.id,
           species: [line(retained, 6), line(inactive, 4)],
         });
-        for (
-          const path of [
-            `/planting-areas/${child.id}`,
-            `/species/${inactive.id}`,
-          ]
-        ) {
+        for (const path of [
+          `/planting-areas/${child.id}`,
+          `/species/${inactive.id}`,
+        ]) {
           const deleted = await request(path, "DELETE");
           strictEqual(deleted.status, 204);
           await deleted.text();
@@ -564,17 +572,24 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           species_ids: [retained.id],
           species: saved.species.map((item) => ({
             ...item,
-            species: item.species === null
-              ? null
-              : { ...item.species, is_active: item.species.id !== inactive.id },
+            species:
+              item.species === null
+                ? null
+                : {
+                    ...item.species,
+                    is_active: item.species.id !== inactive.id,
+                  },
           })),
         });
         const detail = await expectSite(parent.id, 1, 10, [historical]);
         deepStrictEqual(detail.planting_areas, []);
-        deepStrictEqual(detail.species_totals, [{
-          species: compact(retained),
-          quantity: 6,
-        }, { species: compact(inactive), quantity: 4 }]);
+        deepStrictEqual(detail.species_totals, [
+          {
+            species: compact(retained),
+            quantity: 6,
+          },
+          { species: compact(inactive), quantity: 4 },
+        ]);
         await expectSpecies(retained.id, 1, 6, [historical]);
         await expectError(
           await request(`/species/${inactive.id}`),
@@ -596,7 +611,8 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
     await t.step(
       "event saves racing area/species deletion leave consistent references and totals",
       async () => {
-        const parent = await site("deletion races"), child = await area(parent);
+        const parent = await site("deletion races"),
+          child = await area(parent);
         const catalogue = await species("racing species");
         const input = {
           ...eventBody(parent),
@@ -611,7 +627,8 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         for (const result of areaRace) {
           if (result.status === "rejected") throw result.reason;
         }
-        const createResult = areaRace[0], deleteResult = areaRace[1];
+        const createResult = areaRace[0],
+          deleteResult = areaRace[1];
         ok(
           createResult.status === "fulfilled" &&
             deleteResult.status === "fulfilled",
@@ -658,7 +675,8 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         for (const result of speciesRace) {
           if (result.status === "rejected") throw result.reason;
         }
-        const saveResult = speciesRace[0], deactivateResult = speciesRace[1];
+        const saveResult = speciesRace[0],
+          deactivateResult = speciesRace[1];
         ok(
           saveResult.status === "fulfilled" &&
             deactivateResult.status === "fulfilled",
@@ -670,19 +688,23 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         );
         if (saveResult.value.status === 200) {
           const saved = await readJson<PlantingEventResponse>(saveResult.value);
-          deepStrictEqual(saved.species, [{
-            id: desired.species[0].id,
-            species: { ...compact(catalogue), is_active: true },
-            quantity: 9,
-          }]);
+          deepStrictEqual(saved.species, [
+            {
+              id: desired.species[0].id,
+              species: { ...compact(catalogue), is_active: true },
+              quantity: 9,
+            },
+          ]);
           deepStrictEqual(current, {
             ...saved,
             species_ids: [],
-            species: [{
-              id: desired.species[0].id,
-              species: { ...compact(catalogue), is_active: false },
-              quantity: 9,
-            }],
+            species: [
+              {
+                id: desired.species[0].id,
+                species: { ...compact(catalogue), is_active: false },
+                quantity: 9,
+              },
+            ],
           });
           await expectSite(parent.id, 1, 9, [current]);
         } else {
@@ -719,16 +741,14 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         });
         strictEqual(updated.planting_date, "9999-12-31");
         strictEqual(updated.created_at, saved.created_at);
-        for (
-          const invalid of [
-            { ...input, notes: null },
-            { ...input, image_url: null },
-            { ...input, is_public: null },
-            { ...input, species: [{ ...input.species[0], quantity: 0.5 }] },
-            { ...input, species: [{ ...input.species[0], quantity: null }] },
-            { ...input, planting_date: "0000-01-01" },
-          ]
-        ) {
+        for (const invalid of [
+          { ...input, notes: null },
+          { ...input, image_url: null },
+          { ...input, is_public: null },
+          { ...input, species: [{ ...input.species[0], quantity: 0.5 }] },
+          { ...input, species: [{ ...input.species[0], quantity: null }] },
+          { ...input, planting_date: "0000-01-01" },
+        ]) {
           await expectError(
             await request(`/planting-events/${saved.id}`, "PUT", invalid),
             400,
@@ -797,11 +817,13 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         const saved = await createEvent(input);
         strictEqual(saved.notes, text);
         strictEqual(saved.site.name, text);
-        deepStrictEqual(saved.species, [{
-          id: input.species[0].id,
-          species: { ...compact(editedSpecies), is_active: true },
-          quantity: 2,
-        }]);
+        deepStrictEqual(saved.species, [
+          {
+            id: input.species[0].id,
+            species: { ...compact(editedSpecies), is_active: true },
+            quantity: 2,
+          },
+        ]);
         await expectSite(parent.id, 1, 2, [saved]);
         await removeEvent(saved.id);
       },
@@ -812,7 +834,12 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
       async () => {
         const parent = await site("coordinate cases");
         let saved = parent;
-        for (const coordinates of [[-180, -90], [180, 90], [0, 0], [45, 60]]) {
+        for (const coordinates of [
+          [-180, -90],
+          [180, 90],
+          [0, 0],
+          [45, 60],
+        ]) {
           saved = await readJson<SiteResponse>(
             await request(`/sites/${parent.id}`, "PUT", {
               name: parent.name,
@@ -827,21 +854,19 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
             geometry: { type: "Point", coordinates },
           });
         }
-        for (
-          const geometry of [
-            { type: "Point", coordinates: [180.000001, 0] },
-            { type: "Point", coordinates: [0, -90.000001] },
-            { type: "Point", coordinates: ["1", 2] },
-            { type: "Point", coordinates: [null, 2] },
-            { type: "Point", coordinates: [1] },
-            { type: "Point", coordinates: [1, 2, 3] },
-            { type: "Point", coordinates: [[1, 2]] },
-            { type: "Point", coordinates: [1, 2], extra: true },
-            { type: "point", coordinates: [1, 2] },
-            [],
-            "Point",
-          ]
-        ) {
+        for (const geometry of [
+          { type: "Point", coordinates: [180.000001, 0] },
+          { type: "Point", coordinates: [0, -90.000001] },
+          { type: "Point", coordinates: ["1", 2] },
+          { type: "Point", coordinates: [null, 2] },
+          { type: "Point", coordinates: [1] },
+          { type: "Point", coordinates: [1, 2, 3] },
+          { type: "Point", coordinates: [[1, 2]] },
+          { type: "Point", coordinates: [1, 2], extra: true },
+          { type: "point", coordinates: [1, 2] },
+          [],
+          "Point",
+        ]) {
           await expectError(
             await request(`/sites/${parent.id}`, "PUT", {
               name: "must roll back",
@@ -878,18 +903,16 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           image_url: "",
           is_public: false,
         };
-        for (
-          const invalid of [
-            { ...input, scientific_name: "   " },
-            { ...input, common_name: "" },
-            { ...input, aliases: ["valid", null] },
-            { ...input, aliases: [["nested"]] },
-            { ...input, description: "bad\u0000text" },
-            { ...input, description: "bad\ud800text" },
-            { ...input, description: null },
-            { ...input, image_url: null },
-          ]
-        ) {
+        for (const invalid of [
+          { ...input, scientific_name: "   " },
+          { ...input, common_name: "" },
+          { ...input, aliases: ["valid", null] },
+          { ...input, aliases: [["nested"]] },
+          { ...input, description: "bad\u0000text" },
+          { ...input, description: "bad\ud800text" },
+          { ...input, description: null },
+          { ...input, image_url: null },
+        ]) {
           await expectError(
             await request(`/species/${catalogue.id}`, "PUT", invalid),
             400,
@@ -919,13 +942,19 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
         const first = await species("swap-a"),
           second = await species("swap-b"),
           third = await species("swap-c");
-        const a = line(first, 2), b = line(second, 3), c = line(third, 5);
+        const a = line(first, 2),
+          b = line(second, 3),
+          c = line(third, 5);
         const input = { ...eventBody(parent), species: [a, b, c] };
         const created = await createEvent(input);
-        const rotated = [{ ...c, species_id: first.id }, {
-          ...a,
-          species_id: second.id,
-        }, { ...b, species_id: third.id }];
+        const rotated = [
+          { ...c, species_id: first.id },
+          {
+            ...a,
+            species_id: second.id,
+          },
+          { ...b, species_id: third.id },
+        ];
         const saved = await saveEvent(created.id, {
           ...input,
           species: rotated,
@@ -950,17 +979,20 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
               quantity: 3,
             },
           ].sort((left, right) =>
-            left.species.id.localeCompare(right.species.id)
+            left.species.id.localeCompare(right.species.id),
           ),
         );
         await expectError(
           await request(`/planting-events/${saved.id}`, "PUT", {
             ...input,
             notes: "failed complete replacement",
-            species: [{ ...a, quantity: 8 }, {
-              ...line(second, 1),
-              quantity: -1,
-            }],
+            species: [
+              { ...a, quantity: 8 },
+              {
+                ...line(second, 1),
+                quantity: -1,
+              },
+            ],
           }),
           400,
           "validation_error",
@@ -1046,11 +1078,13 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
           ...replacementInput,
           species: [fresh],
         });
-        deepStrictEqual(saved.species, [{
-          id: fresh.id,
-          species: { ...compact(catalogue), is_active: true },
-          quantity: 3,
-        }]);
+        deepStrictEqual(saved.species, [
+          {
+            id: fresh.id,
+            species: { ...compact(catalogue), is_active: true },
+            quantity: 3,
+          },
+        ]);
         await expectSpecies(catalogue.id, 1, 3, [saved]);
         await removeEvent(saved.id);
       },
@@ -1060,9 +1094,10 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
       "server IDs ignore supplied Unicode and reserved URL characters on create and update",
       async () => {
         const parent = await site("opaque IDs");
-        const id = `are_${
-          crypto.randomUUID().replaceAll("-", "").slice(0, 8)
-        }?%é🌱`;
+        const id = `are_${crypto
+          .randomUUID()
+          .replaceAll("-", "")
+          .slice(0, 8)}?%é🌱`;
         strictEqual([...id].length, 16);
         const input = {
           id,
@@ -1125,17 +1160,15 @@ Deno.test("cross-resource HTTP workflows with local Supabase", async (t) => {
       "unspecified and nested resources return sanitized 404s with independent request IDs",
       async () => {
         const ids = new Set<string>();
-        for (
-          const path of [
-            "/",
-            "/unknown",
-            "/locations",
-            "/planting-event-species",
-            "/users",
-            "/auth/logout",
-            "/sites/unknown/events",
-          ]
-        ) {
+        for (const path of [
+          "/",
+          "/unknown",
+          "/locations",
+          "/planting-event-species",
+          "/users",
+          "/auth/logout",
+          "/sites/unknown/events",
+        ]) {
           const response = await request(path);
           const id = response.headers.get("X-Request-ID");
           ok(id);

@@ -1,4 +1,3 @@
-import { generateUniqueID, IdPrefixes } from "../_shared/ids.ts";
 import type { Kysely } from "kysely";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -44,6 +43,7 @@ import {
 } from "./planting-areas.ts";
 
 import {
+  createPlantingEvent,
   deactivatePlantingEvent,
   getPlantingEvent,
   listPlantingEvents,
@@ -84,7 +84,8 @@ export function createApp() {
   app.use(
     "*",
     cors({
-      origin: (origin) => allowedOrigins.includes(origin) ? origin : undefined,
+      origin: (origin) =>
+        allowedOrigins.includes(origin) ? origin : undefined,
       allowMethods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
       allowHeaders: [
         "Content-Type",
@@ -97,20 +98,27 @@ export function createApp() {
   );
 
   app.onError((error, c) => {
-    const failure = error instanceof HttpError ? error : new HttpError(
-      500,
-      "internal_error",
-      "The request could not be completed.",
-      { cause: error },
-    );
+    const failure =
+      error instanceof HttpError
+        ? error
+        : new HttpError(
+            500,
+            "internal_error",
+            "The request could not be completed.",
+            { cause: error },
+          );
     c.set("errorCode", failure.code);
-    c.get("log")("request.failed", {
-      status: failure.status,
-      error_code: failure.code,
-      reason: failure.reason,
-      ...exceptionLogFields(failure),
-    }, failure.status >= 500 ? "error" : "warn");
-    const body: ErrorResponse = {
+    c.get("log")(
+      "request.failed",
+      {
+        status: failure.status,
+        error_code: failure.code,
+        reason: failure.reason,
+        ...exceptionLogFields(failure),
+      },
+      failure.status >= 500 ? "error" : "warn",
+    );
+    const body = {
       error: {
         code: failure.code,
         message: failure.message,
@@ -118,7 +126,7 @@ export function createApp() {
         request_id: c.get("requestId"),
         ...(failure.fields === undefined ? {} : { fields: failure.fields }),
       },
-    };
+    } satisfies ErrorResponse;
     return c.json(body, failure.status);
   });
 
@@ -129,10 +137,14 @@ export function createApp() {
     try {
       c.set("db", getDatabase());
     } catch (error) {
-      log("database.context.failed", {
-        ...exceptionLogFields(error),
-        duration_ms: Math.round(performance.now() - started),
-      }, "error");
+      log(
+        "database.context.failed",
+        {
+          ...exceptionLogFields(error),
+          duration_ms: Math.round(performance.now() - started),
+        },
+        "error",
+      );
       throw new HttpError(
         500,
         "internal_error",
@@ -146,14 +158,12 @@ export function createApp() {
     await next();
   });
 
-  app.get(
-    "/species",
-    async (c) => c.json(await listSpecies(c.get("db"), c.get("log"))),
+  // Species
+  app.get("/species", async (c) =>
+    c.json(await listSpecies(c.get("db"), c.get("log"))),
   );
-  app.get(
-    "/species/:id",
-    async (c) =>
-      c.json(await getSpecies(c.get("db"), c.req.param("id"), c.get("log"))),
+  app.get("/species/:id", async (c) =>
+    c.json(await getSpecies(c.get("db"), c.req.param("id"), c.get("log"))),
   );
   app.post("/species", async (c) => {
     const log = c.get("log");
@@ -193,14 +203,13 @@ export function createApp() {
       reason: "method_not_allowed",
     });
   });
-  app.get(
-    "/sites",
-    async (c) => c.json(await listSites(c.get("db"), c.get("log"))),
+
+  // Sites
+  app.get("/sites", async (c) =>
+    c.json(await listSites(c.get("db"), c.get("log"))),
   );
-  app.get(
-    "/sites/:id",
-    async (c) =>
-      c.json(await getSite(c.get("db"), c.req.param("id"), c.get("log"))),
+  app.get("/sites/:id", async (c) =>
+    c.json(await getSite(c.get("db"), c.req.param("id"), c.get("log"))),
   );
   app.post("/sites", async (c) => {
     const log = c.get("log");
@@ -219,9 +228,7 @@ export function createApp() {
     log("sites.update.body_parsing");
     const body = await readJson<SiteUpdateRequest>(c.req.raw);
     log("sites.update.body_parsed");
-    return c.json(
-      await updateSite(c.get("db"), c.req.param("id"), body, log),
-    );
+    return c.json(await updateSite(c.get("db"), c.req.param("id"), body, log));
   });
   app.delete("/sites/:id", async (c) => {
     await deactivateSite(c.get("db"), c.req.param("id"), c.get("log"));
@@ -240,16 +247,13 @@ export function createApp() {
       reason: "method_not_allowed",
     });
   });
-  app.get(
-    "/planting-areas",
-    async (c) => c.json(await listPlantingAreas(c.get("db"), c.get("log"))),
+
+  // Planting Areas
+  app.get("/planting-areas", async (c) =>
+    c.json(await listPlantingAreas(c.get("db"), c.get("log"))),
   );
-  app.get(
-    "/planting-areas/:id",
-    async (c) =>
-      c.json(
-        await getPlantingArea(c.get("db"), c.req.param("id"), c.get("log")),
-      ),
+  app.get("/planting-areas/:id", async (c) =>
+    c.json(await getPlantingArea(c.get("db"), c.req.param("id"), c.get("log"))),
   );
   app.post("/planting-areas", async (c) => {
     const log = c.get("log");
@@ -289,29 +293,22 @@ export function createApp() {
       reason: "method_not_allowed",
     });
   });
-  app.get(
-    "/planting-events",
-    async (c) => c.json(await listPlantingEvents(c.get("db"), c.get("log"))),
+
+  // Planting Events
+  app.get("/planting-events", async (c) =>
+    c.json(await listPlantingEvents(c.get("db"), c.get("log"))),
   );
-  app.get(
-    "/planting-events/:id",
-    async (c) =>
-      c.json(
-        await getPlantingEvent(c.get("db"), c.req.param("id"), c.get("log")),
-      ),
+  app.get("/planting-events/:id", async (c) =>
+    c.json(
+      await getPlantingEvent(c.get("db"), c.req.param("id"), c.get("log")),
+    ),
   );
   app.post("/planting-events", async (c) => {
     const log = c.get("log");
     log("planting_events.create.body_parsing");
     const body = await readJson<PlantingEventCreateRequest>(c.req.raw);
     log("planting_events.create.body_parsed");
-    const event = await savePlantingEvent(
-      c.get("db"),
-      generateUniqueID(IdPrefixes.PLANTING_EVENT),
-      body,
-      true,
-      log,
-    );
+    const event = await createPlantingEvent(c.get("db"), body, c.get("log"));
     c.header(
       "Location",
       `/functions/v1/api/planting-events/${encodeURIComponent(event.id)}`,

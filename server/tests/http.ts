@@ -2,11 +2,7 @@ import { deepStrictEqual, match, ok, strictEqual } from "node:assert/strict";
 import type { ErrorResponse } from "@wrt/api-types";
 const baseUrl = "http://127.0.0.1:54321/functions/v1/api";
 
-export async function request(
-  path: string,
-  method = "GET",
-  body?: unknown,
-): Promise<Response> {
+export async function request(path: string, method = "GET", body?: unknown) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
@@ -19,17 +15,15 @@ export async function request(
     `${method} ${path} returned HTTP ${response.status} without the expected cache header`,
   );
   match(response.headers.get("X-Request-ID") ?? "", /^[0-9a-f-]{36}$/);
-  return response;
+  return response satisfies Response;
 }
 
-export async function readJson<T>(
-  response: Response,
-  status = 200,
-): Promise<T> {
+export async function readJson<T>(response: Response, status = 200) {
   const text = await response.text();
   strictEqual(response.status, status, `${response.url}: ${text}`);
   match(response.headers.get("Content-Type") ?? "", /application\/json/);
-  return JSON.parse(text);
+  const body: T = JSON.parse(text);
+  return body satisfies T;
 }
 
 export async function expectError(
@@ -37,7 +31,7 @@ export async function expectError(
   status: number,
   code: string,
   reason?: string,
-): Promise<void> {
+) {
   const body = await readJson<ErrorResponse>(response, status);
   deepStrictEqual(Object.keys(body), ["error"]);
   const keys = ["code", "message", "reason", "request_id"];
@@ -63,7 +57,7 @@ export async function expectError(
 export async function inBatches<T>(
   items: T[],
   action: (item: T) => Promise<void>,
-): Promise<void> {
+) {
   for (let offset = 0; offset < items.length; offset += 8) {
     const results = await Promise.allSettled(
       items.slice(offset, offset + 8).map(action),

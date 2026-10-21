@@ -21,7 +21,7 @@ const catalogue = new Map<string, SpeciesResponse>();
 const events = new Set<string>();
 const hiddenEvents = new Set<string>();
 
-async function createSite(name: string, located = true): Promise<SiteResponse> {
+async function createSite(name: string, located = true) {
   const site = await readJson<SiteResponse>(
     await request("/sites", "POST", {
       name: `${runName} ${name}`,
@@ -34,13 +34,10 @@ async function createSite(name: string, located = true): Promise<SiteResponse> {
     201,
   );
   sites.set(site.id, site);
-  return site;
+  return site satisfies SiteResponse;
 }
 
-async function createArea(
-  site: SiteResponse,
-  located = true,
-): Promise<PlantingAreaResponse> {
+async function createArea(site: SiteResponse, located = true) {
   const area = await readJson<PlantingAreaResponse>(
     await request("/planting-areas", "POST", {
       id: generateUniqueID(IdPrefixes.PLANTING_AREA),
@@ -50,18 +47,18 @@ async function createArea(
       is_public: false,
       location: located
         ? {
-          id: generateUniqueID(IdPrefixes.LOCATION),
-          geometry: { type: "Point", coordinates: [169, -44] },
-        }
+            id: generateUniqueID(IdPrefixes.LOCATION),
+            geometry: { type: "Point", coordinates: [169, -44] },
+          }
         : null,
     }),
     201,
   );
   areas.set(area.id, area);
-  return area;
+  return area satisfies PlantingAreaResponse;
 }
 
-async function createSpecies(name: string): Promise<SpeciesResponse> {
+async function createSpecies(name: string) {
   const species = await readJson<SpeciesResponse>(
     await request("/species", "POST", {
       scientific_name: `${runName} ${name}`,
@@ -74,7 +71,7 @@ async function createSpecies(name: string): Promise<SpeciesResponse> {
     201,
   );
   catalogue.set(species.id, species);
-  return species;
+  return species satisfies SpeciesResponse;
 }
 
 function line(species: SpeciesResponse, quantity: number) {
@@ -85,7 +82,7 @@ function line(species: SpeciesResponse, quantity: number) {
   };
 }
 
-function body(site: SiteResponse): PlantingEventCreateRequest {
+function body(site: SiteResponse) {
   return {
     site_id: site.id,
     planting_area_id: null,
@@ -96,52 +93,51 @@ function body(site: SiteResponse): PlantingEventCreateRequest {
     image_url: "",
     is_public: false,
     species: [],
-  };
+  } satisfies PlantingEventCreateRequest;
 }
 
 function expected(
   saved: PlantingEventResponse,
   input: PlantingEventUpdateRequest,
-): PlantingEventResponse {
+) {
   const site = sites.get(input.site_id);
   ok(site);
-  const area = input.planting_area_id === null
-    ? null
-    : areas.get(input.planting_area_id);
+  const area =
+    input.planting_area_id === null ? null : areas.get(input.planting_area_id);
   ok(area !== undefined);
-  const speciesLines = input.species.toSorted((a, b) =>
-    a.species_id.localeCompare(b.species_id)
-  ).map((item) => {
-    const species = catalogue.get(item.species_id);
-    ok(species);
-    const id = item.id ??
-      saved.species.find((line) => line.species.id === item.species_id)?.id;
-    ok(id);
-    if (item.id === undefined) match(id, /^pes_[a-z0-9]{12}$/);
-    return {
-      id,
-      species: {
-        id: species.id,
-        scientific_name: species.scientific_name,
-        common_name: species.common_name,
-        image_url: species.image_url,
-        is_active: true,
-      },
-      quantity: item.quantity,
-    };
-  });
+  const speciesLines = input.species
+    .toSorted((a, b) => a.species_id.localeCompare(b.species_id))
+    .map((item) => {
+      const species = catalogue.get(item.species_id);
+      ok(species);
+      const id =
+        item.id ??
+        saved.species.find((line) => line.species.id === item.species_id)?.id;
+      ok(id);
+      if (item.id === undefined) match(id, /^pes_[a-z0-9]{12}$/);
+      return {
+        id,
+        species: {
+          id: species.id,
+          scientific_name: species.scientific_name,
+          common_name: species.common_name,
+          image_url: species.image_url,
+          is_active: true,
+        },
+        quantity: item.quantity,
+      };
+    });
   return {
     id: saved.id,
     site: { id: site.id, name: site.name, is_public: site.is_public },
-    planting_area: area === null
-      ? null
-      : { id: area.id, name: area.name, is_active: true },
+    planting_area:
+      area === null ? null : { id: area.id, name: area.name, is_active: true },
     planting_date: input.planting_date,
     event_type: input.event_type,
     season: input.season,
-    species_ids: speciesLines.filter((item) => item.quantity > 0).map((item) =>
-      item.species.id
-    ),
+    species_ids: speciesLines
+      .filter((item) => item.quantity > 0)
+      .map((item) => item.species.id),
     total_plants: speciesLines.reduce((sum, item) => sum + item.quantity, 0),
     is_public: input.is_public,
     created_at: saved.created_at,
@@ -150,18 +146,18 @@ function expected(
     image_url: input.image_url,
     location: area?.location ?? site.location,
     species: speciesLines,
-  };
+  } satisfies PlantingEventResponse;
 }
 
-function summary(saved: PlantingEventResponse): PlantingEventListResponse {
+function summary(saved: PlantingEventResponse) {
   return {
     id: saved.id,
     site: saved.site,
     planting_area: saved.planting_area?.is_active
       ? {
-        id: saved.planting_area.id,
-        name: saved.planting_area.name,
-      }
+          id: saved.planting_area.id,
+          name: saved.planting_area.name,
+        }
       : null,
     planting_date: saved.planting_date,
     event_type: saved.event_type,
@@ -170,12 +166,10 @@ function summary(saved: PlantingEventResponse): PlantingEventListResponse {
     species_ids: saved.species_ids,
     total_plants: saved.total_plants,
     is_public: saved.is_public,
-  };
+  } satisfies PlantingEventListResponse;
 }
 
-async function create(
-  input: PlantingEventCreateRequest,
-): Promise<PlantingEventResponse> {
+async function create(input: PlantingEventCreateRequest) {
   const response = await request("/planting-events", "POST", input);
   const saved = await readJson<PlantingEventResponse>(response, 201);
   events.add(saved.id);
@@ -187,13 +181,13 @@ async function create(
   match(saved.created_at, /^\d{4}-\d{2}-\d{2}T/);
   ok(Date.parse(saved.updated_at) >= Date.parse(saved.created_at));
   deepStrictEqual(saved, expected(saved, input));
-  return saved;
+  return saved satisfies PlantingEventResponse;
 }
 
 async function update(
   saved: PlantingEventResponse,
   input: PlantingEventUpdateRequest,
-): Promise<PlantingEventResponse> {
+) {
   const updated = await readJson<PlantingEventResponse>(
     await request(`/planting-events/${saved.id}`, "PUT", input),
   );
@@ -201,16 +195,16 @@ async function update(
   ok(Date.parse(updated.updated_at) >= Date.parse(saved.updated_at));
   deepStrictEqual(updated, expected(updated, input));
   deepStrictEqual(await get(saved.id), updated);
-  return updated;
+  return updated satisfies PlantingEventResponse;
 }
 
-async function get(id: string): Promise<PlantingEventResponse> {
-  return await readJson<PlantingEventResponse>(
+async function get(id: string) {
+  return (await readJson<PlantingEventResponse>(
     await request(`/planting-events/${id}`),
-  );
+  )) satisfies PlantingEventResponse;
 }
 
-async function remove(id: string): Promise<void> {
+async function remove(id: string) {
   const response = await request(`/planting-events/${id}`, "DELETE");
   if (hiddenEvents.has(id)) await expectError(response, 404, "not_found");
   else {
@@ -220,7 +214,7 @@ async function remove(id: string): Promise<void> {
   events.delete(id);
 }
 
-async function cleanup(): Promise<void> {
+async function cleanup() {
   // Events precede their parents and catalogue records. The inactive-parent
   // fixture intentionally remains inaccessible history, with no cleanup SQL.
   const failures: unknown[] = [];
@@ -231,13 +225,11 @@ async function cleanup(): Promise<void> {
       failures.push(error);
     }
   }
-  for (
-    const [resource, ids] of [
-      ["planting-areas", [...areas.keys()]],
-      ["sites", [...sites.keys()]],
-      ["species", [...catalogue.keys()]],
-    ] as const
-  ) {
+  for (const [resource, ids] of [
+    ["planting-areas", [...areas.keys()]],
+    ["sites", [...sites.keys()]],
+    ["species", [...catalogue.keys()]],
+  ] as const) {
     try {
       await inBatches([...ids], async (id) => {
         const response = await request(`/${resource}/${id}`, "DELETE");
@@ -343,16 +335,20 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
     await t.step(
       "desired lines: quantity edits, species swaps, omission, reactivation, replacement and empty set",
       async () => {
-        const a = line(first, 10), b = line(second, 20);
+        const a = line(first, 10),
+          b = line(second, 20);
         const input = { ...body(site), species: [a, b] };
         let saved = await create(input);
         saved = await update(saved, {
           ...input,
-          species: [{ ...a, species_id: second.id, quantity: 4 }, {
-            ...b,
-            species_id: first.id,
-            quantity: 7,
-          }],
+          species: [
+            { ...a, species_id: second.id, quantity: 4 },
+            {
+              ...b,
+              species_id: first.id,
+              quantity: 7,
+            },
+          ],
         });
         saved = await update(saved, { ...input, species: [a] });
         saved = await update(saved, input);
@@ -386,8 +382,8 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
             { species_id: second.id, quantity: 3 },
           ],
         });
-        const added = saved.species.find((item) =>
-          item.species.id === second.id
+        const added = saved.species.find(
+          (item) => item.species.id === second.id,
         );
         ok(added);
         ok(added.id !== originalId);
@@ -429,7 +425,7 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
     await t.step(
       "area/site assignment, site moves and location fallback",
       async () => {
-        let input = body(site);
+        let input: PlantingEventCreateRequest = body(site);
         let saved = await create(input);
         deepStrictEqual(saved.location, site.location);
         input = { ...input, planting_area_id: unlocatedArea.id };
@@ -473,10 +469,13 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           { ...input, species: foreignInput.species },
           {
             ...input,
-            species: [line(first, 5), {
-              ...line(second, 3),
-              species_id: generateUniqueID(IdPrefixes.SPECIES),
-            }],
+            species: [
+              line(first, 5),
+              {
+                ...line(second, 3),
+                species_id: generateUniqueID(IdPrefixes.SPECIES),
+              },
+            ],
           },
           { ...input, site_id: generateUniqueID(IdPrefixes.SITE) },
           {
@@ -524,10 +523,12 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           { ...input, species: [{ ...input.species[0], quantity: -1 }] },
           {
             ...input,
-            species: [{
-              ...input.species[0],
-              quantity: Number.MAX_SAFE_INTEGER + 1,
-            }],
+            species: [
+              {
+                ...input.species[0],
+                quantity: Number.MAX_SAFE_INTEGER + 1,
+              },
+            ],
           },
           { ...input, species: [{ ...input.species[0], id: "bad" }] },
         ];
@@ -587,8 +588,8 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
         const retained = await get(saved.id);
         strictEqual(retained.total_plants, 9);
         deepStrictEqual(retained.species_ids, []);
-        const historicalLine = retained.species.find((item) =>
-          item.id === activeLine.id
+        const historicalLine = retained.species.find(
+          (item) => item.id === activeLine.id,
         );
         ok(historicalLine?.species);
         strictEqual(historicalLine.species.is_active, false);
@@ -632,11 +633,13 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
         await expectError(
           await request(`/planting-events/${saved.id}`, "PUT", {
             ...input,
-            species: [{
-              id: existing.id,
-              species_id: historical.id,
-              quantity: 2,
-            }],
+            species: [
+              {
+                id: existing.id,
+                species_id: historical.id,
+                quantity: 2,
+              },
+            ],
           }),
           409,
           "conflict",
@@ -775,10 +778,13 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           common_name: species.common_name,
           image_url: species.image_url,
         });
-        deepStrictEqual(siteDetail.species_totals, [{
-          species: compact(a),
-          quantity: 14,
-        }, { species: compact(b), quantity: 8 }]);
+        deepStrictEqual(siteDetail.species_totals, [
+          {
+            species: compact(a),
+            quantity: 14,
+          },
+          { species: compact(b), quantity: 8 },
+        ]);
         const areaDetail = await readJson<PlantingAreaResponse>(
           await request(`/planting-areas/${child.id}`),
         );
@@ -786,10 +792,13 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           planting_event_count: 3,
           total_plants: 17,
         });
-        deepStrictEqual(areaDetail.species_totals, [{
-          species: compact(a),
-          quantity: 14,
-        }, { species: compact(b), quantity: 3 }]);
+        deepStrictEqual(areaDetail.species_totals, [
+          {
+            species: compact(a),
+            quantity: 14,
+          },
+          { species: compact(b), quantity: 3 },
+        ]);
         deepStrictEqual(
           areaDetail.planting_events,
           [empty, two, one].map(summary),
@@ -892,10 +901,13 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           if (result.status === "rejected") throw result.reason;
         }
         const final = await get(saved.id);
-        ok(results.some((result) =>
-          result.status === "fulfilled" &&
-          result.value.updated_at === final.updated_at
-        ));
+        ok(
+          results.some(
+            (result) =>
+              result.status === "fulfilled" &&
+              result.value.updated_at === final.updated_at,
+          ),
+        );
         deepStrictEqual(
           final,
           expected(
@@ -910,25 +922,30 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           ...item,
           species: [sharedLine],
         }));
-        const claims = await Promise.allSettled(contenders.map(async (item) => {
-          const response = await request("/planting-events", "POST", item);
-          if (response.status === 201) {
-            const result = await readJson<PlantingEventResponse>(response, 201);
-            events.add(result.id);
-            deepStrictEqual(result, expected(result, item));
-            return result.id;
-          }
-          await expectError(response, 409, "conflict");
-          return null;
-        }));
+        const claims = await Promise.allSettled(
+          contenders.map(async (item) => {
+            const response = await request("/planting-events", "POST", item);
+            if (response.status === 201) {
+              const result = await readJson<PlantingEventResponse>(
+                response,
+                201,
+              );
+              events.add(result.id);
+              deepStrictEqual(result, expected(result, item));
+              return result.id;
+            }
+            await expectError(response, 409, "conflict");
+            return null;
+          }),
+        );
         for (const claim of claims) {
           if (claim.status === "rejected") {
             throw claim.reason;
           }
         }
         strictEqual(
-          claims.filter((claim) =>
-            claim.status === "fulfilled" && claim.value !== null
+          claims.filter(
+            (claim) => claim.status === "fulfilled" && claim.value !== null,
           ).length,
           1,
         );
@@ -945,12 +962,10 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
       async () => {
         const input = body(site);
         const saved = await create(input);
-        for (
-          const [path, method] of [["/planting-events", "POST"], [
-            `/planting-events/${saved.id}`,
-            "PUT",
-          ]]
-        ) {
+        for (const [path, method] of [
+          ["/planting-events", "POST"],
+          [`/planting-events/${saved.id}`, "PUT"],
+        ]) {
           const response = await fetch(
             `http://127.0.0.1:54321/functions/v1/api${path}`,
             {
@@ -962,12 +977,10 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
           await expectError(response, 400, "validation_error");
         }
         deepStrictEqual(await get(saved.id), saved);
-        for (
-          const id of [
-            generateUniqueID(IdPrefixes.PLANTING_EVENT),
-            "arbitrary-id",
-          ]
-        ) {
+        for (const id of [
+          generateUniqueID(IdPrefixes.PLANTING_EVENT),
+          "arbitrary-id",
+        ]) {
           await expectError(
             await request(`/planting-events/${id}`),
             404,
@@ -984,9 +997,10 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
             "not_found",
           );
         }
-        for (
-          const path of ["/planting-events", `/planting-events/${saved.id}`]
-        ) {
+        for (const path of [
+          "/planting-events",
+          `/planting-events/${saved.id}`,
+        ]) {
           const head = await request(path, "HEAD");
           strictEqual(head.status, 200);
           strictEqual(await head.text(), "");
@@ -1038,10 +1052,13 @@ Deno.test("planting-event HTTP API with the local database", async (t) => {
             );
           },
         );
-        const ordered = saved.toSorted((a, b) =>
-          b.planting_date.localeCompare(a.planting_date) ||
-          b.id.localeCompare(a.id)
-        ).map(summary);
+        const ordered = saved
+          .toSorted(
+            (a, b) =>
+              b.planting_date.localeCompare(a.planting_date) ||
+              b.id.localeCompare(a.id),
+          )
+          .map(summary);
         const list = await readJson<PlantingEventListResponse[]>(
           await request("/planting-events"),
         );

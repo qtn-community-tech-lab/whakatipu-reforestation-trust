@@ -6,7 +6,7 @@ The Kysely code migration is complete for all four resources and their 20 routes
 
 Current local requests do not require sign-in. They can read and edit every active record, including unpublished records. Writes use the fixed audit actor `usr_000000000001`. Google authentication, public-view permissions, deployment and historical import tooling are future work. See [the server agent guide](AGENTS.md), [canonical HTTP contracts](../shared/api-types.ts) and [backend specification](../planning/spec.md#current-development-increment-all-four-domain-crud-apis).
 
-Use simple, direct Kysely queries. The manually maintained [database schema](supabase/functions/api/database.schema.ts) maps the seven domain tables; it is separate from HTTP DTOs. `database.ts` opens Kysely and provides transaction and error boundaries. `database-helpers.ts` shares stage logging, actor checks, date and safe-integer handling. Resource modules query Postgres and build response objects in TypeScript. The API does not use Supabase JS table queries, RPCs or SQL functions.
+Use simple, direct Kysely queries. The manually maintained [database schema](supabase/functions/api/database.schema.ts) maps the seven domain tables; it is separate from HTTP DTOs. `database.ts` opens the Kysely connection and provides pure helpers for error mapping and safe diagnostic fields. `database-helpers.ts` shares actor checks, location reads, date and safe-integer handling. Each resource endpoint uses direct awaited queries and a local `try/catch`; native Kysely transactions are written inline where needed. Resource modules build response objects in TypeScript, check returned values with `satisfies` and infer function return types. There are no custom transaction or query-execution wrappers. The API does not use Supabase JS table queries, RPCs or SQL functions.
 
 Requests are assumed to match the shared TypeScript contracts. There is no runtime request/response validation. Malformed JSON returns 400, extra properties are ignored and database constraints enforce stored integrity.
 
@@ -35,12 +35,12 @@ supabase functions serve api --env-file supabase/functions/.env
 
 All 20 domain CRUD routes are implemented. Paths are relative to the function URL. Each resource supports GET/POST on the collection and GET/PUT/DELETE on `/:id`.
 
-| Collection | List order | POST identity | Nested data |
-| --- | --- | --- | --- |
-| `/species` | Scientific name, then ID ascending | Server-generated species ID | None |
-| `/sites` | Name, then ID ascending | Server-generated site ID | Server-owned location geometry |
-| `/planting-areas` | Name, then ID ascending | Server-generated area ID | Optional `{ id, geometry }` location; parent site is immutable |
-| `/planting-events` | Planting date, then ID descending | Server-generated event ID | Complete count set; omitted new line IDs are generated |
+| Collection         | List order                         | POST identity               | Nested data                                                    |
+| ------------------ | ---------------------------------- | --------------------------- | -------------------------------------------------------------- |
+| `/species`         | Scientific name, then ID ascending | Server-generated species ID | None                                                           |
+| `/sites`           | Name, then ID ascending            | Server-generated site ID    | Server-owned location geometry                                 |
+| `/planting-areas`  | Name, then ID ascending            | Server-generated area ID    | Optional `{ id, geometry }` location; parent site is immutable |
+| `/planting-events` | Planting date, then ID descending  | Server-generated event ID   | Complete count set; omitted new line IDs are generated         |
 
 Lists return complete plain arrays; detail routes return full objects. Each catalogue list uses one ordered query. Query parameters do not filter or paginate. PUT replaces the complete editable form and uses the URL ID. POST returns 201 and a relative `Location` header; IDs are percent-encoded in URL path segments and unchanged in response JSON. DELETE soft-deactivates and returns an empty 204.
 
@@ -48,19 +48,19 @@ The API includes active unpublished rows in this development release. Event list
 
 ## Logging and errors
 
-Every request receives a server-generated `X-Request-ID`; each structured log line includes it, the method, path, timestamp, level and event. Follow resource start/completion events, `database.started`/`database.completed` boundaries, `database.stage.*` entries and `request.failed` by request ID. The transaction sets that ID in Postgres `application_name` for database-side correlation.
+Every request receives a server-generated `X-Request-ID`; each structured log line includes it, the method, path, timestamp, level and event. Follow resource `.started`, `.completed` and `.failed` events, `database.stage` markers and `request.failed` by request ID. `logDatabaseStage` only records the current step; it does not execute or wrap queries. Explicit transactions also set the request ID in Postgres `application_name` for database-side correlation. Single-query lists use the connection's `wrt-api` application name.
 
-Local function logs appear in the terminal running `supabase functions serve api`. Database failures are caught once at the Kysely transaction boundary, including failures when committing. Boundary logs include operation, last stage, duration, known SQLSTATE/constraint/table/column details and sanitized exception stacks with the original cause. They omit request bodies and raw database messages/details. The HTTP boundary preserves the established reason/status mapping and returns sanitized messages; expected constraint/value errors are 400, missing resources are 404, known conflicts are 409 and unexpected failures are 500. Error responses include `reason` and the matching request ID.
+Local function logs appear in the terminal running `supabase functions serve api`. Each endpoint catches its query and transaction failures inline, including failures when committing. Failure logs include the resource operation, last stage, duration, known SQLSTATE/constraint/table/column details and sanitized exception stacks with the original cause. They omit request bodies and raw database messages/details. The HTTP boundary preserves the established reason/status mapping and returns sanitized messages; expected constraint/value errors are 400, missing resources are 404, known conflicts are 409 and unexpected failures are 500. Error responses include `reason` and the matching request ID.
 
 ## Database and migrations
 
-The domain migrations define seven tables, constraints, indexes, RLS and role privileges. The four resource API migrations now contain only their supporting indexes and access hardening; API queries and transactions live in TypeScript. Browser roles have no table access or RLS policies. The Edge Function uses the server-side database URL, and operators retain separate database access.
+The single initial migration, `20261019000000_create_domain_tables.sql`, defines all seven tables, constraints, supporting indexes, RLS and role privileges for a fresh database. API queries and transactions live in TypeScript. Browser roles have no table access or RLS policies. The Edge Function uses the server-side database URL, and operators retain separate database access.
 
 Writes run in transactions. They verify the active audit actor, save nested records atomically and return response data from the same transaction. There are no explicit row locks or lock-management queries; concurrent edits use normal Postgres behavior. Detail reads use a repeatable-read transaction so histories and totals share a snapshot. Deactivation retains historical records and repeated accessible deletes preserve the original deactivation timestamp.
 
 Postgres `date` fields are converted to `YYYY-MM-DD` calendar strings. Postgres `bigint` quantities remain strings until TypeScript sums them with `BigInt`; totals are checked before conversion to JSON numbers. Event count swaps deactivate active lines before updating existing rows and inserting new ones, preserving existing line IDs and creation fields while respecting the active-pair unique index.
 
-The existing migration files are unreleased and were explicitly authorized for in-place edits. Do not reset local data. Do not generate Supabase RPC types for this API; Kysely's schema is maintained in `database.schema.ts`.
+The six unreleased migrations were consolidated into this initial migration before being applied. Do not reset local data. Do not generate Supabase RPC types for this API; Kysely's schema is maintained in `database.schema.ts`.
 
 ## Checks
 

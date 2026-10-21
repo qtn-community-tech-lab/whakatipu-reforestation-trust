@@ -1,16 +1,15 @@
 import { PostgresJSDialect } from "kysely-postgres-js";
-import { Kysely, sql } from "kysely";
-import type { Transaction } from "kysely";
+import { Kysely } from "kysely";
 import postgres from "postgres";
 import type { Database } from "./database.schema.ts";
 import { HttpError } from "./http.ts";
 import { exceptionLogFields } from "./logging.ts";
-import type { RequestLog } from "./logging.ts";
+import type { LogFields } from "./logging.ts";
 
 let database: Kysely<Database> | undefined;
 
-export function getDatabase(): Kysely<Database> {
-  if (database) return database;
+export function getDatabase() {
+  if (database) return database satisfies Kysely<Database>;
   const connectionString = Deno.env.get("SUPABASE_DB_URL");
   if (!connectionString) {
     throw new HttpError(
@@ -30,7 +29,7 @@ export function getDatabase(): Kysely<Database> {
       }),
     }),
   });
-  return database;
+  return database satisfies Kysely<Database>;
 }
 
 interface DatabaseError {
@@ -40,29 +39,32 @@ interface DatabaseError {
   column?: string;
 }
 
-function asDatabaseError(error: unknown): DatabaseError | undefined {
-  if (error instanceof HttpError) return undefined;
+function asDatabaseError(error: unknown) {
+  if (error instanceof HttpError) {
+    return undefined satisfies DatabaseError | undefined;
+  }
   if (!error || typeof error !== "object" || !("code" in error)) {
-    return undefined;
+    return undefined satisfies DatabaseError | undefined;
   }
   const source = error as Record<string, unknown>;
-  if (typeof source.code !== "string") return undefined;
+  if (typeof source.code !== "string") {
+    return undefined satisfies DatabaseError | undefined;
+  }
   return {
     code: source.code,
-    constraint: typeof source.constraint_name === "string"
-      ? source.constraint_name
-      : undefined,
-    table: typeof source.table_name === "string"
-      ? source.table_name
-      : undefined,
-    column: typeof source.column_name === "string"
-      ? source.column_name
-      : undefined,
-  };
+    constraint:
+      typeof source.constraint_name === "string"
+        ? source.constraint_name
+        : undefined,
+    table:
+      typeof source.table_name === "string" ? source.table_name : undefined,
+    column:
+      typeof source.column_name === "string" ? source.column_name : undefined,
+  } satisfies DatabaseError | undefined;
 }
 
-export function databaseHttpError(error: unknown): HttpError {
-  if (error instanceof HttpError) return error;
+export function databaseHttpError(error: unknown) {
+  if (error instanceof HttpError) return error satisfies HttpError;
   const code = asDatabaseError(error)?.code;
   if (code === "23505" || code === "23503") {
     return new HttpError(
@@ -70,15 +72,17 @@ export function databaseHttpError(error: unknown): HttpError {
       "conflict",
       "The operation conflicts with the stored data.",
       {
-        reason: code === "23505"
-          ? "duplicate_record"
-          : "referenced_record_unavailable",
+        reason:
+          code === "23505"
+            ? "duplicate_record"
+            : "referenced_record_unavailable",
         cause: error,
       },
-    );
+    ) satisfies HttpError;
   }
   if (
-    code && [
+    code &&
+    [
       "23514",
       "23502",
       "22P02",
@@ -94,69 +98,25 @@ export function databaseHttpError(error: unknown): HttpError {
       "validation_error",
       "The database could not accept the supplied values.",
       { reason: "invalid_values", cause: error },
-    );
+    ) satisfies HttpError;
   }
   return new HttpError(
     500,
     "internal_error",
     "The request could not be completed.",
     { cause: error },
-  );
+  ) satisfies HttpError;
 }
 
-export async function withTransaction<T>(
-  db: Kysely<Database>,
-  operation: string,
-  log: RequestLog,
-  work: (trx: Transaction<Database>) => Promise<T>,
-  isolationLevel?: "repeatable read",
-): Promise<T> {
-  log.databaseStage = undefined;
-  const started = performance.now();
-  log("database.started", { database_operation: operation });
-  try {
-    const transaction = db.transaction();
-    const configured = isolationLevel
-      ? transaction.setIsolationLevel(isolationLevel)
-      : transaction;
-    const result = await configured.execute(async (trx) => {
-      await setRequestContext(trx, log);
-      return await work(trx);
-    });
-    log("database.completed", {
-      database_operation: operation,
-      duration_ms: Math.round(performance.now() - started),
-    });
-    return result;
-  } catch (error) {
-    const failure = databaseHttpError(error);
-    const databaseError = asDatabaseError(error);
-    log(
-      databaseError || error instanceof HttpError
-        ? "database.failed"
-        : "database.exception",
-      {
-        database_operation: operation,
-        stage: log.databaseStage ?? null,
-        database_code: databaseError?.code ?? null,
-        database_constraint: databaseError?.constraint ?? null,
-        database_table: databaseError?.table ?? null,
-        database_column: databaseError?.column ?? null,
-        error_code: failure.code,
-        reason: failure.reason,
-        ...exceptionLogFields(failure),
-        duration_ms: Math.round(performance.now() - started),
-      },
-      "error",
-    );
-    throw failure;
-  }
-}
-
-async function setRequestContext(
-  trx: Transaction<Database>,
-  log: RequestLog,
-): Promise<void> {
-  await sql`select set_config('application_name', ${`wrt-api:${log.requestId}`}, true)`
-    .execute(trx);
+export function databaseErrorLogFields(error: unknown) {
+  const original = error instanceof HttpError ? error.cause : error;
+  const details = asDatabaseError(original);
+  const fields: LogFields = {
+    database_code: details?.code ?? null,
+    database_constraint: details?.constraint ?? null,
+    database_table: details?.table ?? null,
+    database_column: details?.column ?? null,
+    ...exceptionLogFields(error),
+  };
+  return fields satisfies LogFields;
 }

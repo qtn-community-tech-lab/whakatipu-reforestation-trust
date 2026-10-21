@@ -10,14 +10,14 @@ import type { Database } from "./database.schema.ts";
 import { generateUniqueID, IdPrefixes } from "../_shared/ids.ts";
 import { DEVELOPMENT_ACTOR_ID } from "./config.ts";
 import {
-  databaseStage,
   readLocation,
   requireAuditActor,
   storedGeometry,
 } from "./database-helpers.ts";
 import { readEventCollection } from "./event-data.ts";
 import { HttpError } from "./http.ts";
-import { withTransaction } from "./database.ts";
+import { databaseErrorLogFields, databaseHttpError } from "./database.ts";
+import { logDatabaseStage } from "./logging.ts";
 import type { RequestLog } from "./logging.ts";
 import { position } from "./responses.ts";
 
@@ -26,43 +26,35 @@ async function siteDetail(
   id: string,
   log: RequestLog,
   operation: string,
-): Promise<SiteResponse | null> {
-  const row = await databaseStage(
-    operation,
-    "read_site",
-    log,
-    () =>
-      trx.selectFrom("sites").selectAll()
-        .where("id", "=", id)
-        .where("deactivated_at", "is", null)
-        .executeTakeFirst(),
-  );
-  if (!row) return null;
+) {
+  logDatabaseStage(log, operation, "read_site");
+  const row = await trx
+    .selectFrom("sites")
+    .selectAll()
+    .where("id", "=", id)
+    .where("deactivated_at", "is", null)
+    .executeTakeFirst();
+  if (!row) return null satisfies SiteResponse | null;
 
-  const areas = await databaseStage(
-    operation,
-    "read_areas",
-    log,
-    () =>
-      trx.selectFrom("planting_areas as area")
-        .leftJoin(
-          "locations as location",
-          (join) =>
-            join.onRef("location.id", "=", "area.location_id")
-              .on("location.deactivated_at", "is", null),
-        )
-        .select([
-          "area.id as id",
-          "area.name as name",
-          "area.is_public as is_public",
-          "location.geometry as geometry",
-        ])
-        .where("area.site_id", "=", id)
-        .where("area.deactivated_at", "is", null)
-        .orderBy("area.name")
-        .orderBy("area.id")
-        .execute(),
-  );
+  logDatabaseStage(log, operation, "read_areas");
+  const areas = await trx
+    .selectFrom("planting_areas as area")
+    .leftJoin("locations as location", (join) =>
+      join
+        .onRef("location.id", "=", "area.location_id")
+        .on("location.deactivated_at", "is", null),
+    )
+    .select([
+      "area.id as id",
+      "area.name as name",
+      "area.is_public as is_public",
+      "location.geometry as geometry",
+    ])
+    .where("area.site_id", "=", id)
+    .where("area.deactivated_at", "is", null)
+    .orderBy("area.name")
+    .orderBy("area.id")
+    .execute();
   const collection = await readEventCollection(trx, operation, log, {
     site_id: id,
   });
@@ -90,110 +82,145 @@ async function siteDetail(
       is_public: area.is_public,
     })),
     planting_events: collection.events,
-  };
+  } satisfies SiteResponse | null;
 }
 
-export async function listSites(
-  db: Kysely<Database>,
-  log: RequestLog,
-): Promise<SiteListResponse[]> {
+export async function listSites(db: Kysely<Database>, log: RequestLog) {
   const started = performance.now();
   log("sites.list.started");
-  const rows = await withTransaction(
-    db,
-    "sites.list",
-    log,
-    (trx) =>
-      trx.selectFrom("sites as site")
-        .leftJoin(
-          "locations as location",
-          (join) =>
-            join.onRef("location.id", "=", "site.location_id")
-              .on("location.deactivated_at", "is", null),
-        )
-        .select([
-          "site.id as id",
-          "site.name as name",
-          "site.is_public as is_public",
-          "location.geometry as location_geometry",
-        ])
-        .where("site.deactivated_at", "is", null)
-        .orderBy("site.name")
-        .orderBy("site.id")
-        .execute(),
-  );
-  const response = rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    is_public: row.is_public,
-    position: position(row.location_geometry),
-  }));
-  log("sites.list.completed", {
-    row_count: response.length,
-    duration_ms: Math.round(performance.now() - started),
-  });
-  return response;
+  log.databaseStage = undefined;
+  try {
+    logDatabaseStage(log, "sites.list", "read_sites");
+    const rows = await db
+      .selectFrom("sites as site")
+      .leftJoin("locations as location", (join) =>
+        join
+          .onRef("location.id", "=", "site.location_id")
+          .on("location.deactivated_at", "is", null),
+      )
+      .select([
+        "site.id as id",
+        "site.name as name",
+        "site.is_public as is_public",
+        "location.geometry as location_geometry",
+      ])
+      .where("site.deactivated_at", "is", null)
+      .orderBy("site.name")
+      .orderBy("site.id")
+      .execute();
+    const response = rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      is_public: row.is_public,
+      position: position(row.location_geometry),
+    }));
+    log("sites.list.completed", {
+      row_count: response.length,
+      duration_ms: Math.round(performance.now() - started),
+    });
+    return response satisfies SiteListResponse[];
+  } catch (error) {
+    const failure = databaseHttpError(error);
+    log(
+      "sites.list.failed",
+      {
+        error_code: failure.code,
+        reason: failure.reason,
+        stage: log.databaseStage ?? null,
+        ...databaseErrorLogFields(failure),
+        duration_ms: Math.round(performance.now() - started),
+      },
+      failure.status >= 500 ? "error" : "warn",
+    );
+    throw failure;
+  }
 }
 
 export async function getSite(
   db: Kysely<Database>,
   id: string,
   log: RequestLog,
-): Promise<SiteResponse> {
+) {
   const started = performance.now();
   log("sites.get.started", { site_id: id });
-  const response = await withTransaction(
-    db,
-    "site.get",
-    log,
-    (trx) => siteDetail(trx, id, log, "site.get"),
-    "repeatable read",
-  );
-  if (!response) {
-    log("sites.get.not_found", { site_id: id }, "warn");
-    throw new HttpError(404, "not_found", "Site not found.", {
-      reason: "site_not_found",
+  log.databaseStage = undefined;
+  try {
+    const response = await db
+      .transaction()
+      .setIsolationLevel("repeatable read")
+      .execute(async (trx) => {
+        await sql`select set_config('application_name', ${`wrt-api:${log.requestId}`}, true)`.execute(
+          trx,
+        );
+
+        return await siteDetail(trx, id, log, "site.get");
+      });
+    if (!response) {
+      log("sites.get.not_found", { site_id: id }, "warn");
+      throw new HttpError(404, "not_found", "Site not found.", {
+        reason: "site_not_found",
+      });
+    }
+    log("sites.get.completed", {
+      site_id: id,
+      event_count: response.planting_events.length,
+      duration_ms: Math.round(performance.now() - started),
     });
+    return response satisfies SiteResponse;
+  } catch (error) {
+    const failure = databaseHttpError(error);
+    log(
+      "sites.get.failed",
+      {
+        error_code: failure.code,
+        reason: failure.reason,
+        stage: log.databaseStage ?? null,
+        ...databaseErrorLogFields(failure),
+        duration_ms: Math.round(performance.now() - started),
+      },
+      failure.status >= 500 ? "error" : "warn",
+    );
+    throw failure;
   }
-  log("sites.get.completed", {
-    site_id: id,
-    event_count: response.planting_events.length,
-    duration_ms: Math.round(performance.now() - started),
-  });
-  return response;
 }
 
 export async function createSite(
   db: Kysely<Database>,
   body: SiteCreateRequest,
   log: RequestLog,
-): Promise<SiteResponse> {
+) {
   const id = generateUniqueID(IdPrefixes.SITE);
   const locationId = body.location
     ? generateUniqueID(IdPrefixes.LOCATION)
     : null;
   const started = performance.now();
   log("sites.create.started", { site_id: id, actor_id: DEVELOPMENT_ACTOR_ID });
-  const response = await withTransaction(
-    db,
-    "site.create",
-    log,
-    async (trx) => {
+  log.databaseStage = undefined;
+  try {
+    const response = await db.transaction().execute(async (trx) => {
+      await sql`select set_config('application_name', ${`wrt-api:${log.requestId}`}, true)`.execute(
+        trx,
+      );
+
       await requireAuditActor(trx, "site.create", log);
       const location = body.location;
       if (location && locationId) {
         const geometry = storedGeometry(location.geometry);
-        await databaseStage("site.create", "save_location", log, async () => {
-          await trx.insertInto("locations").values({
+        logDatabaseStage(log, "site.create", "save_location");
+        await trx
+          .insertInto("locations")
+          .values({
             id: locationId,
             geometry,
             created_by: DEVELOPMENT_ACTOR_ID,
             updated_by: DEVELOPMENT_ACTOR_ID,
-          }).execute();
-        });
+          })
+          .execute();
       }
-      await databaseStage("site.create", "save_site", log, async () => {
-        await trx.insertInto("sites").values({
+      logDatabaseStage(log, "site.create", "save_site");
+      await trx
+        .insertInto("sites")
+        .values({
           id,
           name: body.name,
           description: body.description,
@@ -201,8 +228,8 @@ export async function createSite(
           location_id: locationId,
           created_by: DEVELOPMENT_ACTOR_ID,
           updated_by: DEVELOPMENT_ACTOR_ID,
-        }).execute();
-      });
+        })
+        .execute();
       const saved = await siteDetail(trx, id, log, "site.create");
       if (!saved) {
         log("sites.create.empty_result", { site_id: id }, "error");
@@ -213,14 +240,28 @@ export async function createSite(
         );
       }
       return saved;
-    },
-  );
-  log("sites.create.completed", {
-    site_id: id,
-    event_count: response.planting_events.length,
-    duration_ms: Math.round(performance.now() - started),
-  });
-  return response;
+    });
+    log("sites.create.completed", {
+      site_id: id,
+      event_count: response.planting_events.length,
+      duration_ms: Math.round(performance.now() - started),
+    });
+    return response satisfies SiteResponse;
+  } catch (error) {
+    const failure = databaseHttpError(error);
+    log(
+      "sites.create.failed",
+      {
+        error_code: failure.code,
+        reason: failure.reason,
+        stage: log.databaseStage ?? null,
+        ...databaseErrorLogFields(failure),
+        duration_ms: Math.round(performance.now() - started),
+      },
+      failure.status >= 500 ? "error" : "warn",
+    );
+    throw failure;
+  }
 }
 
 export async function updateSite(
@@ -228,26 +269,24 @@ export async function updateSite(
   id: string,
   body: SiteUpdateRequest,
   log: RequestLog,
-): Promise<SiteResponse> {
+) {
   const started = performance.now();
   log("sites.update.started", { site_id: id, actor_id: DEVELOPMENT_ACTOR_ID });
-  const response = await withTransaction(
-    db,
-    "site.update",
-    log,
-    async (trx) => {
-      await requireAuditActor(trx, "site.update", log);
-      const saved = await databaseStage(
-        "site.update",
-        "read_site",
-        log,
-        () =>
-          trx.selectFrom("sites")
-            .select(["location_id"])
-            .where("id", "=", id)
-            .where("deactivated_at", "is", null)
-            .executeTakeFirst(),
+  log.databaseStage = undefined;
+  try {
+    const response = await db.transaction().execute(async (trx) => {
+      await sql`select set_config('application_name', ${`wrt-api:${log.requestId}`}, true)`.execute(
+        trx,
       );
+
+      await requireAuditActor(trx, "site.update", log);
+      logDatabaseStage(log, "site.update", "read_site");
+      const saved = await trx
+        .selectFrom("sites")
+        .select(["location_id"])
+        .where("id", "=", id)
+        .where("deactivated_at", "is", null)
+        .executeTakeFirst();
       if (!saved) {
         throw new HttpError(404, "not_found", "Site not found.", {
           reason: "site_not_found",
@@ -255,60 +294,25 @@ export async function updateSite(
       }
 
       const changedAt = sql<Date>`now()`;
-      const locationId = await databaseStage(
-        "site.update",
-        "save_location",
-        log,
-        async () => {
-          if (body.location === null) {
-            if (saved.location_id !== null) {
-              await trx.updateTable("locations")
-                .set({
-                  deactivated_at: changedAt,
-                  updated_at: changedAt,
-                  updated_by: DEVELOPMENT_ACTOR_ID,
-                })
-                .where("id", "=", saved.location_id)
-                .where("deactivated_at", "is", null)
-                .execute();
-            }
-            return null;
-          }
-          const geometry = storedGeometry(body.location.geometry);
-          if (saved.location_id !== null) {
-            await trx.updateTable("locations")
-              .set({
-                geometry,
-                updated_at: changedAt,
-                updated_by: DEVELOPMENT_ACTOR_ID,
-              })
-              .where("id", "=", saved.location_id)
-              .execute();
-            return saved.location_id;
-          }
-          const id = generateUniqueID(IdPrefixes.LOCATION);
-          await trx.insertInto("locations").values({
-            id,
-            geometry,
-            created_by: DEVELOPMENT_ACTOR_ID,
-            updated_by: DEVELOPMENT_ACTOR_ID,
-          }).execute();
-          return id;
-        },
+      logDatabaseStage(log, "site.update", "save_location");
+      const locationId = await saveSiteLocation(
+        trx,
+        saved.location_id,
+        body.location,
       );
-      await databaseStage("site.update", "save_site", log, async () => {
-        await trx.updateTable("sites")
-          .set({
-            name: body.name,
-            description: body.description,
-            is_public: body.is_public,
-            location_id: locationId,
-            updated_at: changedAt,
-            updated_by: DEVELOPMENT_ACTOR_ID,
-          })
-          .where("id", "=", id)
-          .execute();
-      });
+      logDatabaseStage(log, "site.update", "save_site");
+      await trx
+        .updateTable("sites")
+        .set({
+          name: body.name,
+          description: body.description,
+          is_public: body.is_public,
+          location_id: locationId,
+          updated_at: changedAt,
+          updated_by: DEVELOPMENT_ACTOR_ID,
+        })
+        .where("id", "=", id)
+        .execute();
       const detail = await siteDetail(trx, id, log, "site.update");
       if (!detail) {
         log("sites.update.empty_result", { site_id: id }, "error");
@@ -319,67 +323,81 @@ export async function updateSite(
         );
       }
       return detail;
-    },
-  );
-  log("sites.update.completed", {
-    site_id: id,
-    event_count: response.planting_events.length,
-    duration_ms: Math.round(performance.now() - started),
-  });
-  return response;
+    });
+    log("sites.update.completed", {
+      site_id: id,
+      event_count: response.planting_events.length,
+      duration_ms: Math.round(performance.now() - started),
+    });
+    return response satisfies SiteResponse;
+  } catch (error) {
+    const failure = databaseHttpError(error);
+    log(
+      "sites.update.failed",
+      {
+        error_code: failure.code,
+        reason: failure.reason,
+        stage: log.databaseStage ?? null,
+        ...databaseErrorLogFields(failure),
+        duration_ms: Math.round(performance.now() - started),
+      },
+      failure.status >= 500 ? "error" : "warn",
+    );
+    throw failure;
+  }
 }
 
 export async function deactivateSite(
   db: Kysely<Database>,
   id: string,
   log: RequestLog,
-): Promise<void> {
+) {
   const started = performance.now();
   log("sites.deactivate.started", {
     site_id: id,
     actor_id: DEVELOPMENT_ACTOR_ID,
   });
-  await withTransaction(db, "site.deactivate", log, async (trx) => {
-    await requireAuditActor(trx, "site.deactivate", log);
-    const saved = await databaseStage(
-      "site.deactivate",
-      "read_site",
-      log,
-      () =>
-        trx.selectFrom("sites").select(["location_id", "deactivated_at"])
-          .where("id", "=", id).executeTakeFirst(),
-    );
-    if (!saved) {
-      throw new HttpError(404, "not_found", "Site not found.", {
-        reason: "site_not_found",
-      });
-    }
-    if (saved.deactivated_at !== null) {
-      log("sites.deactivate.already_inactive", { site_id: id });
-      return;
-    }
-    const changedAt = sql<Date>`now()`;
-    if (saved.location_id !== null) {
-      const locationId = saved.location_id;
-      await databaseStage(
-        "site.deactivate",
-        "deactivate_location",
-        log,
-        async () => {
-          await trx.updateTable("locations")
-            .set({
-              deactivated_at: changedAt,
-              updated_at: changedAt,
-              updated_by: DEVELOPMENT_ACTOR_ID,
-            })
-            .where("id", "=", locationId)
-            .where("deactivated_at", "is", null)
-            .execute();
-        },
+  log.databaseStage = undefined;
+  try {
+    await db.transaction().execute(async (trx) => {
+      await sql`select set_config('application_name', ${`wrt-api:${log.requestId}`}, true)`.execute(
+        trx,
       );
-    }
-    await databaseStage("site.deactivate", "deactivate_site", log, async () => {
-      await trx.updateTable("sites")
+
+      await requireAuditActor(trx, "site.deactivate", log);
+      logDatabaseStage(log, "site.deactivate", "read_site");
+      const saved = await trx
+        .selectFrom("sites")
+        .select(["location_id", "deactivated_at"])
+        .where("id", "=", id)
+        .executeTakeFirst();
+      if (!saved) {
+        throw new HttpError(404, "not_found", "Site not found.", {
+          reason: "site_not_found",
+        });
+      }
+      if (saved.deactivated_at !== null) {
+        log("sites.deactivate.already_inactive", { site_id: id });
+        return;
+      }
+      const changedAt = sql<Date>`now()`;
+      if (saved.location_id !== null) {
+        const locationId = saved.location_id;
+        logDatabaseStage(log, "site.deactivate", "deactivate_location");
+        await trx
+          .updateTable("locations")
+          .set({
+            deactivated_at: changedAt,
+            updated_at: changedAt,
+            updated_by: DEVELOPMENT_ACTOR_ID,
+          })
+          .where("id", "=", locationId)
+          .where("deactivated_at", "is", null)
+          .execute();
+      }
+      logDatabaseStage(log, "site.deactivate", "deactivate_site");
+      await trx
+        .updateTable("sites")
         .set({
           deactivated_at: changedAt,
           updated_at: changedAt,
@@ -389,9 +407,70 @@ export async function deactivateSite(
         .where("deactivated_at", "is", null)
         .execute();
     });
-  });
-  log("sites.deactivate.completed", {
-    site_id: id,
-    duration_ms: Math.round(performance.now() - started),
-  });
+    log("sites.deactivate.completed", {
+      site_id: id,
+      duration_ms: Math.round(performance.now() - started),
+    });
+  } catch (error) {
+    const failure = databaseHttpError(error);
+    log(
+      "sites.deactivate.failed",
+      {
+        error_code: failure.code,
+        reason: failure.reason,
+        stage: log.databaseStage ?? null,
+        ...databaseErrorLogFields(failure),
+        duration_ms: Math.round(performance.now() - started),
+      },
+      failure.status >= 500 ? "error" : "warn",
+    );
+    throw failure;
+  }
+}
+
+async function saveSiteLocation(
+  trx: Transaction<Database>,
+  existingId: string | null,
+  input: SiteUpdateRequest["location"],
+) {
+  const changedAt = sql<Date>`now()`;
+  if (input === null) {
+    if (existingId !== null) {
+      await trx
+        .updateTable("locations")
+        .set({
+          deactivated_at: changedAt,
+          updated_at: changedAt,
+          updated_by: DEVELOPMENT_ACTOR_ID,
+        })
+        .where("id", "=", existingId)
+        .where("deactivated_at", "is", null)
+        .execute();
+    }
+    return null satisfies string | null;
+  }
+  const geometry = storedGeometry(input.geometry);
+  if (existingId !== null) {
+    await trx
+      .updateTable("locations")
+      .set({
+        geometry,
+        updated_at: changedAt,
+        updated_by: DEVELOPMENT_ACTOR_ID,
+      })
+      .where("id", "=", existingId)
+      .execute();
+    return existingId satisfies string | null;
+  }
+  const id = generateUniqueID(IdPrefixes.LOCATION);
+  await trx
+    .insertInto("locations")
+    .values({
+      id,
+      geometry,
+      created_by: DEVELOPMENT_ACTOR_ID,
+      updated_by: DEVELOPMENT_ACTOR_ID,
+    })
+    .execute();
+  return id satisfies string | null;
 }

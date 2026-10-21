@@ -24,9 +24,10 @@ export class HttpError extends Error {
   }
 }
 
-export async function readJson<T>(request: Request): Promise<T> {
+export async function readJson<T>(request: Request) {
   try {
-    return await request.json();
+    const body: T = await request.json();
+    return body satisfies T;
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new HttpError(

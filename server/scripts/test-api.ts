@@ -1,6 +1,6 @@
 const serverDirectory = new URL("../", import.meta.url);
 
-async function supabase(...args: string[]): Promise<void> {
+async function supabase(...args: string[]) {
   const result = await new Deno.Command("supabase", {
     args,
     cwd: serverDirectory,
@@ -32,7 +32,7 @@ const edge = new Deno.Command("supabase", {
 // Drain logs without printing thousands of request lines or retaining them.
 // Wait for the CLI's startup message rather than accidentally using an old worker.
 let ready = false;
-async function drain(stream: ReadableStream<Uint8Array>): Promise<void> {
+async function drain(stream: ReadableStream<Uint8Array>) {
   const decoder = new TextDecoder();
   let recent = "";
   for await (const chunk of stream) {
@@ -64,7 +64,7 @@ try {
       "--config",
       "supabase/functions/api/deno.json",
       "--allow-net=127.0.0.1:54321",
-      ...Deno.args.length ? Deno.args : ["tests/"],
+      ...(Deno.args.length ? Deno.args : ["tests/"]),
     ],
     cwd: serverDirectory,
     stdout: "inherit",
