@@ -1,6 +1,5 @@
 import { generateUniqueID, IdPrefixes } from "../_shared/ids.ts";
-import { createSupabaseContext } from "@supabase/server";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Kysely } from "kysely";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type {
@@ -14,7 +13,8 @@ import type {
   SpeciesCreateRequest,
   SpeciesUpdateRequest,
 } from "@wrt/api-types";
-import type { Database } from "./database.types.ts";
+import type { Database } from "./database.schema.ts";
+import { getDatabase } from "./database.ts";
 import { readAllowedOrigins } from "./config.ts";
 import { HttpError, readJson } from "./http.ts";
 import { createRequestLog, exceptionLogFields } from "./logging.ts";
@@ -52,7 +52,7 @@ import {
 
 type AppEnv = {
   Variables: {
-    db: SupabaseClient<Database>;
+    db: Kysely<Database>;
     log: RequestLog;
     requestId: string;
     errorCode: string | undefined;
@@ -80,7 +80,7 @@ export function createApp() {
     });
   });
 
-  // Preflight ends here, before SDK context/client initialization.
+  // Preflight ends here, before database initialization.
   app.use(
     "*",
     cors({
@@ -126,24 +126,9 @@ export function createApp() {
     const started = performance.now();
     const log = c.get("log");
     log("database.context.started");
-    // Supported typed context API; the SDK's old framework adapters are deprecated.
-    const { data: context, error } = await createSupabaseContext<Database>(
-      c.req.raw,
-      {
-        auth: "none",
-        // PostgREST exposes this trusted ID to SQL through request.headers.
-        supabaseOptions: {
-          global: {
-            headers: {
-              "X-Request-ID": c.get("requestId"),
-              "X-WRT-Request-Method": c.req.method,
-              "X-WRT-Request-Path": c.req.path,
-            },
-          },
-        },
-      },
-    );
-    if (error) {
+    try {
+      c.set("db", getDatabase());
+    } catch (error) {
       log("database.context.failed", {
         ...exceptionLogFields(error),
         duration_ms: Math.round(performance.now() - started),
@@ -155,7 +140,6 @@ export function createApp() {
         { reason: "server_configuration_unavailable", cause: error },
       );
     }
-    c.set("db", context.supabaseAdmin);
     log("database.context.ready", {
       duration_ms: Math.round(performance.now() - started),
     });

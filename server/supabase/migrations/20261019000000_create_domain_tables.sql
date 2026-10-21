@@ -172,8 +172,9 @@ create unique index planting_event_species_active_pair_idx
   on public.planting_event_species (planting_event_id, species_id)
   where deactivated_at is null;
 
--- Domain tables are reachable through the Edge API and operator tooling only.
--- RLS has no browser-facing policies; the privileged API must enforce viewer scope.
+-- Domain tables are accessed through the privileged Edge API and operator tooling.
+-- RLS has no browser-facing policies. The current API has editor scope; any
+-- future viewer scope must be enforced explicitly by its server queries.
 alter table public.users enable row level security;
 alter table public.locations enable row level security;
 alter table public.sites enable row level security;

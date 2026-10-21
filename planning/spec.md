@@ -1,7 +1,7 @@
 ---
 id: SPEC-wrt-backend
 project: Whakatipu Reforestation Trust
-updated: 2026-10-20
+updated: 2026-10-21
 status: implementation handoff draft
 companions: []
 sources:
@@ -15,7 +15,7 @@ sources:
 
 **Audience:** backend developer, with frontend integration notes.
 
-**Build:** one Supabase project providing Google authentication, Postgres persistence and one TypeScript Edge Function containing the application's REST API. Use database functions for transactional multi-table changes. Prefer the free tier and do not introduce paid services without James's approval.
+**Build:** one Supabase project providing Google authentication, Postgres persistence and one TypeScript Edge Function containing the application's REST API. Use Kysely transactions for multi-table changes. Prefer the free tier and do not introduce paid services without James's approval.
 
 This is a self-contained implementation handoff. The database structure, HTTP behavior, TypeScript contracts, business rules and acceptance requirements are included below. Other files are provenance, not required reading. No backend implementation, deployment, client sign-off or delivery deadline is implied by this document.
 
@@ -23,16 +23,16 @@ This is a self-contained implementation handoff. The database structure, HTTP be
 
 The following agreed development choices take precedence over the later target behavior in this document for the implemented species, site, planting-area and planting-event endpoints:
 
-- Run locally in the Supabase `api` Edge Function, with Deno, Hono and the official Supabase server SDK. Hosted deployment is later work.
+- Run locally in the Supabase `api` Edge Function, with Deno, Hono, Kysely and Postgres.js. Hosted deployment is later work.
 - Species, site, planting-area and planting-event HTTP end-to-end tests are maintained against local Supabase using Deno's built-in runner. Create all fixtures through the implemented HTTP endpoints and clean up by soft deletion; do not reset local data. Event tests verify non-zero histories/totals across species, sites and areas, desired-line replacement, inactive references and complete collections exceeding 1,000 records. Other suites and the wider acceptance matrix below remain future guidance unless requested.
 - Authentication is deferred. Requests need no bearer token or API key at the handler. Every request has editor scope: all active species, sites, planting areas, planting events and otherwise active related records are visible regardless of publication flags.
-- Use the seeded app user `usr_000000000001` for every write's audit identity. This is a local development identity, not a Supabase Auth account. RPCs still check that the actor is active.
+- Use the seeded app user `usr_000000000001` for every write's audit identity. This is a local development identity, not a Supabase Auth account. Each write still checks that the actor is active.
 - The server generates all resource IDs and new site-location IDs. Create requests alias their corresponding update requests and omit top-level IDs. Site location input is `{ geometry }` or null; PUT retains an existing location ID, creates one if needed, or detaches/deactivates on null. Area location input remains `{ id, geometry }` or null; PUT retains the parent site. New event-count rows may omit `id` for server generation; existing lines retain their IDs. Event PUT replaces the entire desired active line set, may move sites with a consistent optional area, and preserves allowed historical references as described in section 11.3.
 - Events accept free-text `season`, with `""` when unspecified. Event list summaries (including embedded histories) include `season` and `image_url`; details inherit both. Species totals and event quantities always contain non-null species references. Anonymous species visibility policy must be reconciled with these contracts before authentication is implemented.
 - Assume requests match the TypeScript contracts. Do not add Zod, replacement request validators, path-ID validators or response-schema validators. JSON parsing failures return 400; existing database constraints remain enforced. Extra request properties are ignored. Audit identities always come from trusted code; PUT identity comes from its path, and only nested area-location/count inputs accept the IDs declared in their contracts. Query parameters have no effect and do not add filtering.
-- Retain the full species, site, planting-area and planting-event detail contracts, including real totals and complete related summaries. Site details include owned geometry, per-species quantities, active planting areas and event history. Area details include their current parent site, owned location and area-specific totals/history. Event details include all active lines (including zero quantities and inactive species), historical area identity and effective area/site location. Preserve soft deactivation, audit history, safe aggregate limits and the server-only table/RPC access boundary.
-- Keep Postgres functions lightweight: use typed queries for catalogue lists and small RPCs for consistent detail reads, event-list aggregates and transactional writes. Assemble public response objects in TypeScript, not SQL JSON builders. This takes precedence over older SQL response-assembly recommendations below.
-- Error responses include a stable `reason`, actionable message, the generated `request_id` and optional field guidance. Fixed SQL hints identify expected business failures; TypeScript chooses their public wording. Internally capture PostgreSQL exception context and TypeScript stack frames/cause chains, while omitting raw database messages/details and credentials. Stack traces and SQL context stay in internal logs. Edit the existing unreleased migrations and do not run tests locally unless explicitly requested.
+- Retain the full species, site, planting-area and planting-event detail contracts, including real totals and complete related summaries. Site details include owned geometry, per-species quantities, active planting areas and event history. Area details include their current parent site, owned location and area-specific totals/history. Event details include all active lines (including zero quantities and inactive species), historical area identity and effective area/site location. Preserve soft deactivation, audit history, safe aggregate limits and the server-only table access boundary.
+- Use simple Kysely queries, with step-by-step database calls where clearer. Keep writes atomic in transactions and detail GETs in repeatable-read transactions. Do not use explicit row locks or lock-management queries; concurrent edits use normal Postgres behavior. Catalogue lists use one ordered query, and event lists validate individual event totals without an unused collection total. Migrations contain tables, constraints, indexes, RLS and grants, without API SQL functions or composite types. Edit the existing unreleased migrations in place.
+- Error responses include a stable `reason`, actionable message, the generated `request_id` and optional field guidance. Business checks throw explicit HTTP errors. Catch query and commit failures once at the Kysely transaction boundary, map known Postgres codes and preserve the original error cause. Internal logs retain operation, stage, safe database diagnostics and sanitized stack frames/cause chains, while omitting raw database messages/details and credentials. Edit the existing unreleased migrations and do not run tests locally unless explicitly requested.
 
 Canonical contracts are in [the monorepo shared module](../shared/api-types.ts), imported by Deno through the function's `@wrt/api-types` alias using `import type`. [The server runbook](../server/README.md) describes the current implementation, checks and local gateway behavior. The wider acceptance matrix below remains the target for resources and authentication not yet implemented.
 

@@ -3,14 +3,15 @@
     "strict": true
   },
   "imports": {
-    "@supabase/server": "npm:@supabase/server@1.9.2",
-    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.118.0",
+    "kysely": "npm:kysely@0.29.7",
+    "kysely-postgres-js": "npm:kysely-postgres-js@5.0.1",
+    "postgres": "npm:postgres@3.4.8",
     "hono": "npm:hono@4.13.13",
     "hono/cors": "npm:hono@4.13.13/cors",
     "@wrt/api-types": "../../../../shared/api-types.ts"
   },
   "tasks": {
-    "check": "deno check index.ts ../../../tests/*_test.ts ../../../scripts/test-api.ts",
+    "check": "deno check index.ts database.schema.ts ../../../tests/*_test.ts ../../../scripts/test-api.ts",
     "test": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts",
     "test:species": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts tests/species_test.ts",
     "test:sites": "deno run --allow-run=supabase,deno ../../../scripts/test-api.ts tests/sites_test.ts",

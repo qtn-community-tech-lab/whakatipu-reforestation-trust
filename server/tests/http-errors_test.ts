@@ -1,58 +1,76 @@
-import { match, ok, strictEqual, throws } from "node:assert/strict";
-import {
-  HttpError,
-  throwDatabaseError,
-} from "../supabase/functions/api/http.ts";
+import { match, ok, strictEqual } from "node:assert/strict";
+import { databaseHttpError } from "../supabase/functions/api/database.ts";
+import { HttpError } from "../supabase/functions/api/http.ts";
+import { exceptionLogFields } from "../supabase/functions/api/logging.ts";
 
-Deno.test("fixed database hints expose useful reasons without raw details", () => {
-  const error = {
-    code: "PT409",
-    hint: "wrt:inactive_species",
-    message: "private database message",
-    details: "private rejected row",
-  };
-  const logLines: string[] = [];
-  throws(() => {
-    throwDatabaseError(
-      error,
-      (event, fields) => {
-        logLines.push(JSON.stringify({ event, ...fields }));
-      },
-      performance.now(),
-      "planting_event_save",
-    );
-  }, (failure: unknown) => {
-    ok(failure instanceof HttpError);
-    strictEqual(failure.status, 409);
-    strictEqual(failure.reason, "inactive_species");
-    ok(failure.fields?.species);
-    ok(!failure.message.includes("private"));
-    return true;
+Deno.test("database conflicts preserve the original exception without exposing its message", () => {
+  const original = Object.assign(new Error("private database message"), {
+    code: "23505",
+    detail: "private rejected row",
+    constraint_name: "species_pkey",
   });
-  strictEqual(logLines.length, 1);
-  match(logLines[0], /inactive_species/);
-  match(logLines[0], /error_stack/);
-  ok(!logLines[0].includes("private"));
+  const failure = databaseHttpError(original);
+  strictEqual(failure.status, 409);
+  strictEqual(failure.reason, "duplicate_record");
+  strictEqual(failure.cause, original);
+  const fields = exceptionLogFields(failure);
+  strictEqual(fields.cause_1_type, "Error");
+  match(String(fields.cause_1_stack), /http-errors_test\.ts/);
+  ok(!failure.message.includes("private"));
+  ok(!JSON.stringify(fields).includes("private"));
 });
 
-Deno.test("unknown hints and mismatched SQLSTATEs cannot choose public failures", () => {
+Deno.test("foreign-key and value errors retain their public status and reasons", () => {
+  const foreignKey = databaseHttpError({ code: "23503" });
+  strictEqual(foreignKey.status, 409);
+  strictEqual(foreignKey.reason, "referenced_record_unavailable");
   for (
-    const hint of [
-      "wrt:inactive_species",
-      "wrt:__proto__",
-      "wrt:unknown_reason",
-      "private hint",
+    const code of [
+      "23514",
+      "23502",
+      "22P02",
+      "22P05",
+      "22023",
+      "22007",
+      "22008",
+      "22003",
     ]
   ) {
-    const error = { code: "XX000", hint };
-    throws(() => {
-      throwDatabaseError(error, () => {}, performance.now(), "species_get");
-    }, (failure: unknown) => {
-      ok(failure instanceof HttpError);
-      strictEqual(failure.status, 500);
-      strictEqual(failure.reason, "internal_error");
-      strictEqual(failure.message, "The request could not be completed.");
-      return true;
-    });
+    const failure = databaseHttpError({ code });
+    strictEqual(failure.status, 400);
+    strictEqual(failure.reason, "invalid_values");
+  }
+});
+
+Deno.test("explicit business failures pass through the database boundary unchanged", () => {
+  const original = new HttpError(
+    409,
+    "conflict",
+    "A selected species no longer exists.",
+    {
+      reason: "species_unavailable",
+      fields: { species: "Select an existing species for each count." },
+    },
+  );
+  strictEqual(databaseHttpError(original), original);
+});
+
+Deno.test("unexpected failures cannot choose public messages or reasons using hints", () => {
+  for (
+    const original of [
+      new Error("private connection failure"),
+      {
+        code: "XX000",
+        hint: "wrt:inactive_species",
+        message: "private database error",
+      },
+      { code: "PT409", hint: "wrt:inactive_species" },
+    ]
+  ) {
+    const failure = databaseHttpError(original);
+    strictEqual(failure.status, 500);
+    strictEqual(failure.reason, "internal_error");
+    strictEqual(failure.message, "The request could not be completed.");
+    strictEqual(failure.cause, original);
   }
 });

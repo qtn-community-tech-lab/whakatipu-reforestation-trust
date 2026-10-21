@@ -1,11 +1,13 @@
 type LogFields = Record<string, string | number | boolean | null>;
 type LogLevel = "info" | "warn" | "error";
 
-export type RequestLog = (
-  event: string,
-  fields?: LogFields,
-  level?: LogLevel,
-) => void;
+export type RequestLog =
+  & ((
+    event: string,
+    fields?: LogFields,
+    level?: LogLevel,
+  ) => void)
+  & { requestId: string; databaseStage?: string };
 
 export function exceptionLogFields(error: unknown): LogFields {
   const fields: LogFields = {};
@@ -51,7 +53,11 @@ export function createRequestLog(
   method: string,
   path: string,
 ): RequestLog {
-  return (event, fields = {}, level = "info") => {
+  const write = (
+    event: string,
+    fields: LogFields = {},
+    level: LogLevel = "info",
+  ) => {
     console[level](JSON.stringify({
       ...fields,
       timestamp: new Date().toISOString(),
@@ -62,4 +68,5 @@ export function createRequestLog(
       path,
     }));
   };
+  return Object.assign(write, { requestId });
 }

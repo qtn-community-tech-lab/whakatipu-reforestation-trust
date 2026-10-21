@@ -1,9 +1,26 @@
 import type {
   Geometry,
   PlantingEventListResponse,
+  PlantingEventType,
   Position,
 } from "@wrt/api-types";
-import type { SpeciesEventRow } from "./database.types.ts";
+import { dateString } from "./database-helpers.ts";
+
+export interface PlantingEventSummaryRow {
+  id: string;
+  site_id: string;
+  site_name: string;
+  site_is_public: boolean;
+  planting_area_id: string | null;
+  planting_area_name: string | null;
+  planting_date: Date | string;
+  event_type: PlantingEventType;
+  season: string;
+  image_url: string;
+  species_ids: string[];
+  total_plants: number;
+  is_public: boolean;
+}
 
 export function position(geometry: Geometry | null): Position | null {
   // Phase one stores Points only; polygons remain a future contract extension.
@@ -11,7 +28,7 @@ export function position(geometry: Geometry | null): Position | null {
 }
 
 export function plantingEventListResponse(
-  event: SpeciesEventRow,
+  event: PlantingEventSummaryRow,
 ): PlantingEventListResponse {
   return {
     id: event.id,
@@ -24,7 +41,7 @@ export function plantingEventListResponse(
       event.planting_area_id === null || event.planting_area_name === null
         ? null
         : { id: event.planting_area_id, name: event.planting_area_name },
-    planting_date: event.planting_date,
+    planting_date: dateString(event.planting_date),
     event_type: event.event_type,
     season: event.season,
     image_url: event.image_url,
